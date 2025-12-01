@@ -132,6 +132,25 @@ jobs:
           node -r tsx/register -r tsconfig-paths/register tools/debugger/ci/generate-summary.mjs
         shell: bash
 
+      - name: Ensure summary exists (fallback)
+        if: always()
+        run: |
+          if [ ! -f summary.md ]; then
+            echo "## 🔍 Spec Debugger Summary" > summary.md
+            echo "(generated fallback summary)" >> summary.md
+            if [ -f ci-results/summary.txt ]; then
+              echo "" >> summary.md
+              echo "Results:" >> summary.md
+              echo '```text' >> summary.md
+              cat ci-results/summary.txt >> summary.md
+              echo '```' >> summary.md
+            else
+              echo "No results found." >> summary.md
+            fi
+          fi
+          echo "== summary.md =="
+          sed -n '1,200p' summary.md || true
+
       - name: Comment summary
         if: always()
         uses: peter-evans/create-or-update-comment@v4

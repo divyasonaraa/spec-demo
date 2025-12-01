@@ -10,133 +10,133 @@ import { pathToFileURL } from 'node:url';
  */
 
 function discoverSamples() {
-  try {
-    const out = execSync('find src/config/samples -name "*.ts" -type f', { encoding: 'utf8' });
-    return out.split('\n').filter(Boolean).map(p => resolve(p));
-  } catch {
-    return [];
-  }
+    try {
+        const out = execSync('find src/config/samples -name "*.ts" -type f', { encoding: 'utf8' });
+        return out.split('\n').filter(Boolean).map(p => resolve(p));
+    } catch {
+        return [];
+    }
 }
 
 async function importTsConfig(tsPath) {
-  const content = readFileSync(tsPath, 'utf8');
-  // Try default export first
-  const hasDefault = /export\s+default\s+/.test(content);
-  const fileUrl = pathToFileURL(tsPath).href;
-  const mod = await import(fileUrl);
-  if (hasDefault && mod?.default) return mod.default;
-  // Fallback: find named export with FormConfig type
-  const m = content.match(/export\s+const\s+(\w+)\s*:\s*FormConfig/);
-  if (m && mod[m[1]]) return mod[m[1]];
-  // Else, return first object-like export
-  for (const key of Object.keys(mod)) {
-    const val = mod[key];
-    if (val && typeof val === 'object') return val;
-  }
-  return null;
+    const content = readFileSync(tsPath, 'utf8');
+    // Try default export first
+    const hasDefault = /export\s+default\s+/.test(content);
+    const fileUrl = pathToFileURL(tsPath).href;
+    const mod = await import(fileUrl);
+    if (hasDefault && mod?.default) return mod.default;
+    // Fallback: find named export with FormConfig type
+    const m = content.match(/export\s+const\s+(\w+)\s*:\s*FormConfig/);
+    if (m && mod[m[1]]) return mod[m[1]];
+    // Else, return first object-like export
+    for (const key of Object.keys(mod)) {
+        const val = mod[key];
+        if (val && typeof val === 'object') return val;
+    }
+    return null;
 }
 
 async function runEngine(configObj) {
-  const engine = await import(join(process.cwd(), 'tools/debugger/engine/index.mjs'));
-  const run = engine.default || engine.runEngine || engine.run || engine;
-  if (!run) throw new Error('Engine entry not found');
-  // Assume run returns findings array when passed config
-  const findings = await run({ config: configObj });
-  return findings || [];
+    const engine = await import(join(process.cwd(), 'tools/debugger/engine/index.mjs'));
+    const run = engine.default || engine.runEngine || engine.run || engine;
+    if (!run) throw new Error('Engine entry not found');
+    // Assume run returns findings array when passed config
+    const findings = await run({ config: configObj });
+    return findings || [];
 }
 
 function summarizeCounts(findings) {
-  const errors = findings.filter(f => f.severity === 'error').length;
-  const warnings = findings.filter(f => f.severity === 'warning').length;
-  const info = findings.filter(f => f.severity === 'info').length;
-  const status = errors > 0 ? '❌ Failed' : (warnings > 0 ? '⚠️ Warnings' : '✅ Passed');
-  return { errors, warnings, info, status };
+    const errors = findings.filter(f => f.severity === 'error').length;
+    const warnings = findings.filter(f => f.severity === 'warning').length;
+    const info = findings.filter(f => f.severity === 'info').length;
+    const status = errors > 0 ? '❌ Failed' : (warnings > 0 ? '⚠️ Warnings' : '✅ Passed');
+    return { errors, warnings, info, status };
 }
 
 function formatDetailed(sectionTitle, severityLabel, findings) {
-  const parts = [];
-  parts.push(sectionTitle);
-  parts.push('');
-  for (const f of findings) {
-    parts.push(`📄 ${f.file || f.sample || 'config'}`);
-    parts.push(f.title);
+    const parts = [];
+    parts.push(sectionTitle);
     parts.push('');
-    parts.push(`Reason: ${f.explanation}`);
-    parts.push('');
-    const loc = Array.isArray(f.jsonPaths) ? f.jsonPaths.join(', ') : (f.location || 'N/A');
-    parts.push(`Location: ${loc}`);
-    parts.push('');
-    const fixes = Array.isArray(f.fixGuidance) ? f.fixGuidance : Object.values(f.fixGuidance || {});
-    if (severityLabel === 'info') {
-      parts.push('Suggestions:');
-    } else {
-      parts.push('Fix:');
+    for (const f of findings) {
+        parts.push(`📄 ${f.file || f.sample || 'config'}`);
+        parts.push(f.title);
+        parts.push('');
+        parts.push(`Reason: ${f.explanation}`);
+        parts.push('');
+        const loc = Array.isArray(f.jsonPaths) ? f.jsonPaths.join(', ') : (f.location || 'N/A');
+        parts.push(`Location: ${loc}`);
+        parts.push('');
+        const fixes = Array.isArray(f.fixGuidance) ? f.fixGuidance : Object.values(f.fixGuidance || {});
+        if (severityLabel === 'info') {
+            parts.push('Suggestions:');
+        } else {
+            parts.push('Fix:');
+        }
+        parts.push('');
+        for (const suggestion of fixes) {
+            parts.push(suggestion);
+        }
     }
-    parts.push('');
-    for (const suggestion of fixes) {
-      parts.push(suggestion);
-    }
-  }
-  return parts.join('\n');
+    return parts.join('\n');
 }
 
 async function main() {
-  const samples = discoverSamples();
-  const summaryLines = [];
-  summaryLines.push('Debugger Summary');
-  summaryLines.push('Config\tErrors\tWarnings\tInfo\tStatus');
+    const samples = discoverSamples();
+    const summaryLines = [];
+    summaryLines.push('Debugger Summary');
+    summaryLines.push('Config\tErrors\tWarnings\tInfo\tStatus');
 
-  const warningsDetails = [];
-  const infoDetails = [];
+    const warningsDetails = [];
+    const infoDetails = [];
 
-  for (const sample of samples) {
-    const base = sample.split('/').pop().replace(/\.ts$/, '');
-    let cfg = null;
-    try {
-      cfg = await importTsConfig(sample);
-    } catch (e) {
-      // Record import error as a finding-like line
-      summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
-      warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nFailed to import config: ${e.message}`);
-      continue;
+    for (const sample of samples) {
+        const base = sample.split('/').pop().replace(/\.ts$/, '');
+        let cfg = null;
+        try {
+            cfg = await importTsConfig(sample);
+        } catch (e) {
+            // Record import error as a finding-like line
+            summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
+            warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nFailed to import config: ${e.message}`);
+            continue;
+        }
+        if (!cfg) {
+            summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
+            warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nNo export matching FormConfig found.`);
+            continue;
+        }
+        const findings = await runEngine(cfg);
+        // attach file for formatting
+        for (const f of findings) f.sample = sample.split('/').pop();
+        const { errors, warnings, info, status } = summarizeCounts(findings);
+        summaryLines.push(`${base}\t${errors}\t${warnings}\t${info}\t${status}`);
+        const warnFs = findings.filter(f => f.severity === 'warning');
+        const infoFs = findings.filter(f => f.severity === 'info');
+        if (warnFs.length) {
+            warningsDetails.push(formatDetailed('⚠️ Warnings (Should Review)', 'warning', warnFs));
+        }
+        if (infoFs.length) {
+            infoDetails.push('💡 Info & Suggestions (Optional Improvements)');
+            infoDetails.push('');
+            infoDetails.push(formatDetailed('', 'info', infoFs));
+        }
     }
-    if (!cfg) {
-      summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
-      warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nNo export matching FormConfig found.`);
-      continue;
-    }
-    const findings = await runEngine(cfg);
-    // attach file for formatting
-    for (const f of findings) f.sample = sample.split('/').pop();
-    const { errors, warnings, info, status } = summarizeCounts(findings);
-    summaryLines.push(`${base}\t${errors}\t${warnings}\t${info}\t${status}`);
-    const warnFs = findings.filter(f => f.severity === 'warning');
-    const infoFs = findings.filter(f => f.severity === 'info');
-    if (warnFs.length) {
-      warningsDetails.push(formatDetailed('⚠️ Warnings (Should Review)', 'warning', warnFs));
-    }
-    if (infoFs.length) {
-      infoDetails.push('💡 Info & Suggestions (Optional Improvements)');
-      infoDetails.push('');
-      infoDetails.push(formatDetailed('', 'info', infoFs));
-    }
-  }
 
-  const md = [];
-  md.push(summaryLines.join('\n'));
-  md.push('');
-  if (warningsDetails.length) {
-    md.push(warningsDetails.join('\n\n'));
-  }
-  if (infoDetails.length) {
+    const md = [];
+    md.push(summaryLines.join('\n'));
     md.push('');
-    md.push(infoDetails.join('\n\n'));
-  }
-  writeFileSync('summary.md', md.join('\n'), 'utf8');
+    if (warningsDetails.length) {
+        md.push(warningsDetails.join('\n\n'));
+    }
+    if (infoDetails.length) {
+        md.push('');
+        md.push(infoDetails.join('\n\n'));
+    }
+    writeFileSync('summary.md', md.join('\n'), 'utf8');
 }
 
 main().catch(err => {
-  const note = `Failed to generate summary: ${err?.message || err}`;
-  writeFileSync('summary.md', note, 'utf8');
-  process.exit(0);
+    const note = `Failed to generate summary: ${err?.message || err}`;
+    writeFileSync('summary.md', note, 'utf8');
+    process.exit(0);
 });

@@ -95,7 +95,7 @@ export default async function runEngine({ config, verbose = false }) {
 
     if (verbose) {
         console.log(`[VERBOSE] Config loaded: ${config.steps?.length || 0} steps, ${config.id || 'no-id'}`)
-        console.log(`[VERBOSE] Running static analysis (no test states needed)`)    
+        console.log(`[VERBOSE] Running static analysis (no test states needed)`)
     }
 
     const findings = []

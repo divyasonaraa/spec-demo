@@ -62,58 +62,58 @@ const exportedConfigs = []
 for (const tsFile of tsFiles) {
     const baseName = tsFile.replace('.ts', '')
     const filePath = join(SAMPLES_DIR, tsFile)
-    
+
     // Read file to detect export name
     const fileContent = await readFile(filePath, 'utf8')
     const exportMatch = fileContent.match(/export\s+const\s+(\w+):\s*FormConfig/)
-    
+
     if (!exportMatch) {
         console.log(`   ⚠️  ${baseName}: No FormConfig export found`)
         continue
     }
-    
+
     const exportName = exportMatch[1] // e.g., 'conditionalForm' or 'basicFormConfig'
-    
+
     // Create a temporary evaluation script
     const evalScript = `
 import { ${exportName} } from '${filePath}';
 console.log(JSON.stringify(${exportName}, null, 2));
 `
-    
+
     const tempScriptPath = join(projectRoot, '.temp-export.mts')
-    
+
     try {
         await writeFile(tempScriptPath, evalScript, 'utf8')
-        
+
         // Run with tsx to evaluate TypeScript
         const jsonOutput = execSync(`npx tsx ${tempScriptPath}`, {
             cwd: projectRoot,
             encoding: 'utf8',
             stdio: 'pipe'
         })
-        
+
         // Write to public/examples/ with kebab-case filename
         const kebabName = baseName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()
         const outputPath = join(OUTPUT_DIR, `${kebabName}.json`)
-        
+
         // Pretty-print the JSON
         const config = JSON.parse(jsonOutput)
         const formattedJson = JSON.stringify(config, null, 4)
-        
+
         await writeFile(outputPath, formattedJson, 'utf8')
-        
+
         console.log(`   ✅ ${baseName} → ${kebabName}.json`)
         exportedConfigs.push({ name: kebabName, path: outputPath, config })
-        
+
         // Clean up temp file
         execSync(`rm -f ${tempScriptPath}`, { cwd: projectRoot })
-        
+
     } catch (error) {
         console.log(`   ❌ Failed to export ${tsFile}: ${error.message}`)
         // Clean up on error
         try {
             execSync(`rm -f ${tempScriptPath}`, { cwd: projectRoot })
-        } catch {}
+        } catch { }
     }
 }
 
@@ -132,25 +132,25 @@ const results = []
 
 for (const { name, path } of exportedConfigs) {
     process.stdout.write(`   ${name.padEnd(25)} `)
-    
+
     try {
         const output = execSync(`node ${DEBUGGER_CLI} ${path}`, {
             cwd: projectRoot,
             encoding: 'utf8',
             stdio: 'pipe'
         })
-        
+
         // Parse summary from output
         const summaryMatch = output.match(/errors=(\d+), warnings=(\d+), info=(\d+)/)
-        
+
         if (summaryMatch) {
             const [, errors, warnings, info] = summaryMatch
             const e = parseInt(errors)
             const w = parseInt(warnings)
             const i = parseInt(info)
-            
+
             results.push({ name, errors: e, warnings: w, info: i })
-            
+
             if (e > 0) {
                 hasErrors = true
                 console.log(`❌ ${e} error(s), ${w} warning(s)`)
@@ -160,12 +160,12 @@ for (const { name, path } of exportedConfigs) {
                 console.log(`✅ PASS`)
             }
         }
-        
+
     } catch (error) {
         // Debugger returns exit code 1 on errors
         const output = error.stdout || error.stderr || ''
         const summaryMatch = output.match(/errors=(\d+), warnings=(\d+), info=(\d+)/)
-        
+
         if (summaryMatch) {
             const [, errors, warnings] = summaryMatch
             const e = parseInt(errors)

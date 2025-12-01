@@ -74,18 +74,18 @@ const exportedConfigs = []
 for (const tsFile of tsFiles) {
     const baseName = tsFile.replace('.ts', '')
     const exportName = baseName // e.g., 'conditionalForm'
-    
+
     try {
         // Import the compiled JavaScript module
         // Note: After build, files are in dist/ - adjust path as needed based on your build config
         const modulePath = join(projectRoot, 'dist/config/samples', `${baseName}.js`)
-        
+
         // Dynamic import doesn't work with file:// in some Node versions, use workaround
         const configModule = await import(`file://${modulePath}`)
-        
+
         // Get the exported config (e.g., conditionalForm export)
         const config = configModule[exportName]
-        
+
         if (!config) {
             console.log(`   ⚠️  No export named '${exportName}' in ${tsFile}`)
             continue
@@ -93,16 +93,16 @@ for (const tsFile of tsFiles) {
 
         // Convert to JSON with proper formatting
         const jsonContent = JSON.stringify(config, null, 4)
-        
+
         // Write to public/examples/ with kebab-case filename
         const kebabName = baseName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()
         const outputPath = join(OUTPUT_DIR, `${kebabName}.json`)
-        
+
         await writeFile(outputPath, jsonContent, 'utf8')
-        
+
         console.log(`   ✅ ${tsFile} → ${kebabName}.json`)
         exportedConfigs.push({ name: kebabName, path: outputPath })
-        
+
     } catch (error) {
         console.log(`   ❌ Failed to export ${tsFile}:`, error.message)
     }
@@ -123,17 +123,17 @@ const results = []
 
 for (const { name, path } of exportedConfigs) {
     console.log(`   Validating ${name}...`)
-    
+
     try {
         const output = execSync(`node ${DEBUGGER_CLI} ${path}`, {
             cwd: projectRoot,
             encoding: 'utf8',
             stdio: 'pipe'
         })
-        
+
         // Parse summary from output
         const summaryMatch = output.match(/Debugger Summary: errors=(\d+), warnings=(\d+), info=(\d+)/)
-        
+
         if (summaryMatch) {
             const [, errors, warnings, info] = summaryMatch
             results.push({
@@ -143,13 +143,13 @@ for (const { name, path } of exportedConfigs) {
                 info: parseInt(info),
                 status: parseInt(errors) > 0 ? 'FAILED' : (parseInt(warnings) > 0 ? 'WARNINGS' : 'PASSED')
             })
-            
+
             if (parseInt(errors) > 0) {
                 hasErrors = true
                 console.log(`      ❌ ${errors} error(s), ${warnings} warning(s)`)
-                
+
                 // Show error details
-                const errorLines = output.split('\n').filter(line => 
+                const errorLines = output.split('\n').filter(line =>
                     line.includes('[ERROR]') || line.includes('Reason:') || line.includes('Fix Guidance:')
                 )
                 errorLines.forEach(line => console.log(`         ${line.trim()}`))
@@ -159,12 +159,12 @@ for (const { name, path } of exportedConfigs) {
                 console.log(`      ✅ No issues found`)
             }
         }
-        
+
     } catch (error) {
         // Debugger returns exit code 1 on errors
         const output = error.stdout || error.stderr || ''
         const summaryMatch = output.match(/Debugger Summary: errors=(\d+), warnings=(\d+), info=(\d+)/)
-        
+
         if (summaryMatch) {
             const [, errors, warnings, info] = summaryMatch
             results.push({
@@ -175,7 +175,7 @@ for (const { name, path } of exportedConfigs) {
                 status: 'FAILED'
             })
             hasErrors = true
-            
+
             console.log(`      ❌ ${errors} error(s), ${warnings} warning(s)`)
         } else {
             console.log(`      ❌ Validation failed:`, error.message)
@@ -198,9 +198,9 @@ for (const result of results) {
     const errors = result.errors.toString().padStart(6)
     const warnings = result.warnings.toString().padStart(9)
     const info = result.info.toString().padStart(5)
-    const status = result.status === 'PASSED' ? '✅ PASS' : 
-                   result.status === 'WARNINGS' ? '⚠️  WARN' : '❌ FAIL'
-    
+    const status = result.status === 'PASSED' ? '✅ PASS' :
+        result.status === 'WARNINGS' ? '⚠️  WARN' : '❌ FAIL'
+
     console.log(`${name} ${errors} ${warnings} ${info}  ${status}`)
 }
 

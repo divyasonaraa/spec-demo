@@ -22,96 +22,96 @@ const __dirname = dirname(__filename)
 const projectRoot = join(__dirname, '../../..')
 
 async function loadConfigFromTs(tsPath) {
-  // Detect export name by reading the file and finding FormConfig export
-  const content = await readFile(tsPath, 'utf8')
-  const exportMatch = content.match(/export\s+const\s+(\w+):\s*FormConfig/)
-  if (!exportMatch) throw new Error(`No FormConfig export found in ${tsPath}`)
-  const exportName = exportMatch[1]
+    // Detect export name by reading the file and finding FormConfig export
+    const content = await readFile(tsPath, 'utf8')
+    const exportMatch = content.match(/export\s+const\s+(\w+):\s*FormConfig/)
+    if (!exportMatch) throw new Error(`No FormConfig export found in ${tsPath}`)
+    const exportName = exportMatch[1]
 
-  const tempScript = join(projectRoot, '.temp-eval.mts')
-  const evalSource = `import { ${exportName} } from '${tsPath}';\nconsole.log(JSON.stringify(${exportName}, null, 2));\n`
-  await (await import('fs/promises')).writeFile(tempScript, evalSource, 'utf8')
-  try {
-    const json = execSync(`npx tsx ${tempScript}`, { cwd: projectRoot, encoding: 'utf8', stdio: 'pipe' })
-    return JSON.parse(json)
-  } finally {
-    try { execSync(`rm -f ${tempScript}`, { cwd: projectRoot }) } catch {}
-  }
+    const tempScript = join(projectRoot, '.temp-eval.mts')
+    const evalSource = `import { ${exportName} } from '${tsPath}';\nconsole.log(JSON.stringify(${exportName}, null, 2));\n`
+    await (await import('fs/promises')).writeFile(tempScript, evalSource, 'utf8')
+    try {
+        const json = execSync(`npx tsx ${tempScript}`, { cwd: projectRoot, encoding: 'utf8', stdio: 'pipe' })
+        return JSON.parse(json)
+    } finally {
+        try { execSync(`rm -f ${tempScript}`, { cwd: projectRoot }) } catch { }
+    }
 }
 
 async function loadConfigFromJson(jsonPath) {
-  const content = await readFile(jsonPath, 'utf8')
-  return JSON.parse(content)
+    const content = await readFile(jsonPath, 'utf8')
+    return JSON.parse(content)
 }
 
 async function loadConfigFromStdin() {
-  const chunks = []
-  for await (const chunk of process.stdin) chunks.push(chunk)
-  const content = Buffer.concat(chunks).toString('utf8')
-  return JSON.parse(content)
+    const chunks = []
+    for await (const chunk of process.stdin) chunks.push(chunk)
+    const content = Buffer.concat(chunks).toString('utf8')
+    return JSON.parse(content)
 }
 
 async function main() {
-  const arg = process.argv[2]
-  let config
-  let nameHint = 'config'
+    const arg = process.argv[2]
+    let config
+    let nameHint = 'config'
 
-  if (!arg) {
-    // Try stdin
-    if (process.stdin.isTTY) {
-      console.error('Usage: run-debugger-config.mjs <path-to-ts-or-json> or pipe JSON via stdin')
-      process.exit(2)
-    }
-    config = await loadConfigFromStdin()
-  } else {
-    const fullPath = arg.startsWith('/') ? arg : join(projectRoot, arg)
-    const ext = extname(fullPath)
-    nameHint = basename(fullPath).replace(ext, '')
-
-    if (!existsSync(fullPath)) {
-      console.error(`File not found: ${fullPath}`)
-      process.exit(2)
-    }
-
-    if (ext === '.ts' || ext === '.mts' || ext === '.tsx') {
-      config = await loadConfigFromTs(fullPath)
+    if (!arg) {
+        // Try stdin
+        if (process.stdin.isTTY) {
+            console.error('Usage: run-debugger-config.mjs <path-to-ts-or-json> or pipe JSON via stdin')
+            process.exit(2)
+        }
+        config = await loadConfigFromStdin()
     } else {
-      config = await loadConfigFromJson(fullPath)
+        const fullPath = arg.startsWith('/') ? arg : join(projectRoot, arg)
+        const ext = extname(fullPath)
+        nameHint = basename(fullPath).replace(ext, '')
+
+        if (!existsSync(fullPath)) {
+            console.error(`File not found: ${fullPath}`)
+            process.exit(2)
+        }
+
+        if (ext === '.ts' || ext === '.mts' || ext === '.tsx') {
+            config = await loadConfigFromTs(fullPath)
+        } else {
+            config = await loadConfigFromJson(fullPath)
+        }
     }
-  }
 
-  // Run engine directly with in-memory config
-  const { default: runEngine } = await import(join(projectRoot, 'tools/debugger/engine/index.mjs'))
-  const findings = await runEngine({ config })
+    // Run engine directly with in-memory config
+    const { default: runEngine } = await import(join(projectRoot, 'tools/debugger/engine/index.mjs'))
+    const findings = await runEngine({ config })
 
-  // Pretty print findings similar to existing CLI
-  let errors = 0, warnings = 0, info = 0
-  for (const f of findings) {
-    if (f.severity === 'error') errors++
-    else if (f.severity === 'warning') warnings++
-    else info++
+    // Pretty print findings similar to existing CLI
+    let errors = 0, warnings = 0, info = 0
+    for (const f of findings) {
+        if (f.severity === 'error') errors++
+        else if (f.severity === 'warning') warnings++
+        else info++
 
-    const tag = f.severity.toUpperCase()
-    console.log(`[${tag}] ${f.title}\n`)
-    console.log(`Reason: ${f.explanation}`)
-    if (Array.isArray(f.jsonPaths) && f.jsonPaths.length) {
-      console.log(`Paths: ${f.jsonPaths.join(', ')}`)
+        const tag = f.severity.toUpperCase()
+        console.log(`[${tag}] ${f.title}\n`)
+        console.log(`Reason: ${f.explanation}`)
+        if (Array.isArray(f.jsonPaths) && f.jsonPaths.length) {
+            console.log(`Paths: ${f.jsonPaths.join(', ')}`)
+        }
+        console.log('Reproducer: {}')
+        if (Array.isArray(f.fixGuidance) && f.fixGuidance.length) {
+            console.log('Fix Guidance:')
+            f.fixGuidance.forEach((g, i) => console.log(`  - ${i + 1}. ${g}`))
+        }
+        console.log('\n')
     }
-    console.log('Reproducer: {}')
-    if (Array.isArray(f.fixGuidance) && f.fixGuidance.length) {
-      console.log('Fix Guidance:')
-      f.fixGuidance.forEach((g, i) => console.log(`  - ${i + 1}. ${g}`))
-    }
-    console.log('\n')
-  }
 
-  console.log(`Debugger Summary: errors=${errors}, warnings=${warnings}, info=${info}`)
+    console.log(`Debugger Summary: errors=${errors}, warnings=${warnings}, info=${info}`)
 
-  if (errors > 0) process.exit(1)
-  else process.exit(0)
+    if (errors > 0) process.exit(1)
+    else process.exit(0)
 }
 
 main().catch(err => {
-  console.error('Debugger run failed:', err.message)
-  process.exit(2)
+    console.error('Debugger run failed:', err.message)
+    process.exit(2)
 })
