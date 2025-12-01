@@ -1,0 +1,25 @@
+{
+    "states": [
+        {
+            "title": "Business account hides required companyName",
+            "values": {
+                "accountType": "business",
+                "companyName": ""
+            }
+        },
+        {
+            "title": "Mutually exclusive conditions both true",
+            "values": {
+                "subscribe": true,
+                "unsubscribe": true
+            }
+        },
+        {
+            "title": "Impossible combination",
+            "values": {
+                "age": -1,
+                "parentConsent": false
+            }
+        }
+    ]
+}

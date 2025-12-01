@@ -1,0 +1,133 @@
+[
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.name is missing or empty",
+    "jsonPaths": [
+      "user.name"
+    ],
+    "reproducerState": {
+      "accountType": "business",
+      "companyName": "",
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.email is missing or empty",
+    "jsonPaths": [
+      "user.email"
+    ],
+    "reproducerState": {
+      "accountType": "business",
+      "companyName": "",
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "warning",
+    "title": "Mutually exclusive conditions active together",
+    "explanation": "subscribe and unsubscribe both true, which is mutually exclusive",
+    "jsonPaths": [
+      "values.subscribe",
+      "values.unsubscribe"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Ensure only one of subscribe/unsubscribe can be true"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.name is missing or empty",
+    "jsonPaths": [
+      "user.name"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.email is missing or empty",
+    "jsonPaths": [
+      "user.email"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Impossible value combination across fields",
+    "explanation": "Negative age without parent consent is an impossible state",
+    "jsonPaths": [
+      "values.age",
+      "values.parentConsent"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Validate age >= 0",
+      "Adjust consent logic for minors"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.name is missing or empty",
+    "jsonPaths": [
+      "user.name"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Payload schema required field missing",
+    "explanation": "Required payload field user.email is missing or empty",
+    "jsonPaths": [
+      "user.email"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false,
+      "newsletter": false
+    },
+    "fixGuidance": [
+      "Provide value or adjust mapping"
+    ]
+  }
+]
