@@ -55,7 +55,9 @@ jobs:
           fi
           
           # Process each config and track failures
-          while IFS= read -r sample; do
+          # Ensure summary file exists
+          : > ci-results/summary.txt
+          printf '%s\n' "$SAMPLES" | while IFS= read -r sample; do
             if [ -n "$sample" ]; then
               echo "============================================"
               echo "Analyzing TS sample: $sample"
@@ -71,7 +73,7 @@ jobs:
                 EXIT_CODE=1
               fi
             fi
-          done <<< "$SAMPLES"
+          done
           
           # Report overall status
           if [ $EXIT_CODE -eq 1 ]; then
