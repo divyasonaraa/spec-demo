@@ -5,17 +5,20 @@
 **Status**: Draft  
 **Input**: User description: "$ARGUMENTS"
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Manual Verification *(mandatory)*
 
 <!--
   IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
+  Each user story/journey must be INDEPENDENTLY VERIFIABLE through manual testing.
+  
+  NOTE: This project follows a NO TESTING policy (Constitution Principle V).
+  Absolutely no automated tests (unit, integration, e2e) will be created.
+  All verification is performed manually in the browser during development.
   
   Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
   Think of each story as a standalone slice of functionality that can be:
   - Developed independently
-  - Tested independently
+  - Verified manually and independently
   - Deployed independently
   - Demonstrated to users independently
 -->
@@ -26,7 +29,7 @@
 
 **Why this priority**: [Explain the value and why it has this priority level]
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+**Manual Verification**: [Describe how this can be manually verified in the browser - e.g., "Can be fully verified by [specific action] and observing [specific outcome]"]
 
 **Acceptance Scenarios**:
 
@@ -41,7 +44,7 @@
 
 **Why this priority**: [Explain the value and why it has this priority level]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Manual Verification**: [Describe how this can be manually verified in the browser]
 
 **Acceptance Scenarios**:
 
@@ -55,7 +58,7 @@
 
 **Why this priority**: [Explain the value and why it has this priority level]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Manual Verification**: [Describe how this can be manually verified in the browser]
 
 **Acceptance Scenarios**:
 

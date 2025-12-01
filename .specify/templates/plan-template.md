@@ -17,21 +17,56 @@
   the iteration process.
 -->
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Language/Version**: [e.g., TypeScript 5.x, Vue 3.x or NEEDS CLARIFICATION]  
+**Primary Dependencies**: [e.g., Vue 3, Tailwind CSS, Vite or NEEDS CLARIFICATION]  
+**Storage**: [if applicable, e.g., LocalStorage, IndexedDB, API calls or N/A]  
+**Testing**: NONE (per Constitution Principle V - NO TESTING policy)  
+**Target Platform**: [e.g., Modern browsers, mobile web, progressive web app or NEEDS CLARIFICATION]
 **Project Type**: [single/web/mobile - determines source structure]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Performance Goals**: [domain-specific, e.g., <100ms interaction, <3s initial load, 60fps animations or NEEDS CLARIFICATION]  
+**Constraints**: [domain-specific, e.g., mobile-first, accessible WCAG AA, minimal bundle size or NEEDS CLARIFICATION]  
+**Scale/Scope**: [domain-specific, e.g., expected user base, number of components, feature complexity or NEEDS CLARIFICATION]
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+**Principle I - Clean Code**:
+- [ ] All functions have single, clear responsibilities
+- [ ] Variable/function names are self-documenting
+- [ ] TypeScript strict mode enabled
+- [ ] No functions exceed 50 lines without justification
+
+**Principle II - Simple UX**:
+- [ ] User flows require minimum steps to accomplish goals
+- [ ] All UI elements have obvious affordances
+- [ ] Inline validation with helpful error messages
+- [ ] Loading and error states are clearly communicated
+
+**Principle III - Responsive Design**:
+- [ ] Mobile-first design approach
+- [ ] Tailwind responsive utilities used throughout
+- [ ] Touch targets minimum 44×44px
+- [ ] WCAG AA color contrast compliance
+- [ ] Keyboard navigation support
+
+**Principle IV - Minimal Dependencies**:
+- [ ] Only Vue 3, TypeScript, Tailwind CSS, Vite used
+- [ ] No additional dependencies without explicit justification
+- [ ] All dependencies audited for size and necessity
+
+**Principle V - NO TESTING (CRITICAL)**:
+- [ ] No test frameworks installed or configured
+- [ ] No test files or directories created
+- [ ] No test scripts in package.json
+- [ ] Manual verification plan documented
+
+**Technology Stack Compliance**:
+- [ ] Vue 3 Composition API with `<script setup>`
+- [ ] TypeScript strict mode enabled
+- [ ] Tailwind CSS for all styling
+- [ ] Vite as build tool
+- [ ] No prohibited technologies (testing frameworks, CSS preprocessors, state management libs, UI component libs)
 
 ## Project Structure
 
@@ -56,39 +91,39 @@ specs/[###-feature]/
 -->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
+# Single Vue 3 + TypeScript + Tailwind CSS Project (DEFAULT)
 src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+├── components/      # Reusable Vue components
+├── views/           # Page-level components
+├── composables/     # Composition API composables
+├── types/           # TypeScript type definitions
+├── utils/           # Utility functions
+└── assets/          # Static assets (images, icons)
 
-tests/
-├── contract/
-├── integration/
-└── unit/
+public/              # Public static files
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+
+# [REMOVE IF UNUSED] Option 2: Web application with separate backend (only if API server needed)
 backend/
 ├── src/
 │   ├── models/
 │   ├── services/
 │   └── api/
-└── tests/
 
 frontend/
 ├── src/
 │   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
+│   ├── views/
+│   ├── composables/
+│   └── types/
+└── public/
 
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
+# [REMOVE IF UNUSED] Option 3: Mobile + API (when "mobile app" + "API" detected)
 api/
 └── [same as backend above]
 
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+mobile/
+└── [platform-specific structure: iOS/Android native or React Native]
 ```
 
 **Structure Decision**: [Document the selected structure and reference the real
