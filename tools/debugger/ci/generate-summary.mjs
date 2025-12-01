@@ -23,9 +23,10 @@ function evalTsToJson(tsPath) {
   if (!m) return null;
   const name = m[1];
   const tmp = join(process.cwd(), `.tmp-eval-${name}.mts`);
-    const src = `import 'tsconfig-paths/register';\nimport { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
+    const src = `import { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
   writeFileSync(tmp, src, 'utf8');
-    const json = execSync(`npx --yes tsx ${tmp}`, { encoding: 'utf8' });
+    // Ensure tsconfig-paths is available to the tsx process and preloaded
+    const json = execSync(`npx --yes --package tsconfig-paths tsx -r tsconfig-paths/register ${tmp}`, { encoding: 'utf8' });
   try { execSync(`rm -f ${tmp}`); } catch {}
   return JSON.parse(json);
 }
