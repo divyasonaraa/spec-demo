@@ -104,7 +104,7 @@
                 {
                     "name": "phone",
                     "label": "Phone Number",
-                    "type": "number",
+                    "type": "tel",
                     "placeholder": "+1 (555) 123-4567",
                     "helpText": "Include country code",
                     "validation": {
@@ -259,8 +259,11 @@
         }
     ],
     "submitConfig": {
-        "endpoint": "https://api.mycompany.com/onboarding",
-        "method": "PUT",
+        "endpoint": "https://api.example.com/onboarding",
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json"
+        },
         "stateTransitions": {
             "onSuccess": {
                 "action": "showMessage",

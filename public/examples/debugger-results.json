@@ -1,33 +1,33 @@
 [
   {
-    "severity": "warning",
-    "title": "Number field \"phone\" has pattern validation",
-    "explanation": "Field \"phone\" has type=\"number\" but validation.pattern=\"^\\+?[1-9]\\d{1,14}$\". Pattern validation only works on strings. For number fields, use min/max/step instead. Current pattern will be ignored by browsers.",
+    "severity": "error",
+    "title": "Broken dependency: \"state\" depends on non-existent field",
+    "explanation": "Field \"state\" declares dependency on parent \"region\", but no field named \"region\" exists in step \"Account Setup\". This will cause runtime errors when trying to establish the dependency relationship. The dependent field will never enable.",
     "jsonPaths": [
-      "steps[id=contact-details].fields[name=phone].type",
-      "steps[id=contact-details].fields[name=phone].validation.pattern"
+      "steps[id=account-setup].fields[name=state].dependency.parent",
+      "steps[id=account-setup].fields"
     ],
     "reproducerState": {},
     "fixGuidance": [
-      "Remove pattern and use min/max: { \"min\": 0, \"max\": 999, \"step\": 1 }",
-      "If you need pattern (e.g., \"must be 3 digits\"), change type to \"text\" or \"tel\"",
-      "For formatted numbers (e.g., phone), use type=\"tel\" with pattern instead of type=\"number\""
+      "Add the missing parent field \"region\" to this step",
+      "Fix typo: check if parent field has different name (common: \"country\" vs \"countries\")",
+      "Remove dependency if not needed: delete \"dependency\" property from \"state\"",
+      "Use showIf instead: { \"showIf\": { \"field\": \"region\", \"operator\": \"equals\", \"value\": \"...\" } }"
     ]
   },
   {
     "severity": "warning",
-    "title": "Missing Content-Type header for data submission",
-    "explanation": "submitConfig uses method=\"PUT\" but doesn't specify Content-Type header. Most APIs expect \"Content-Type: application/json\" for JSON payloads. Without this, the API may reject the request or misinterpret the data format.",
+    "title": "Field \"email\" has email validation but type is \"text\"",
+    "explanation": "Field \"email\" has validation.email=true but type=\"text\". This mismatch means: (1) Browser won't show email keyboard on mobile, (2) Autocomplete won't suggest emails, (3) Pattern validation may conflict. Best practice is to match field type with validation rules.",
     "jsonPaths": [
-      "submitConfig.headers",
-      "submitConfig.method"
+      "steps[id=account-setup].fields[name=email].type",
+      "steps[id=account-setup].fields[name=email].validation.email"
     ],
     "reproducerState": {},
     "fixGuidance": [
-      "Add headers: { \"Content-Type\": \"application/json\" }",
-      "For file uploads, use: { \"Content-Type\": \"multipart/form-data\" }",
-      "For form-encoded: { \"Content-Type\": \"application/x-www-form-urlencoded\" }",
-      "Check your API documentation for required Content-Type"
+      "Change field type to \"email\": \"type\": \"email\" for proper mobile keyboard and validation",
+      "If type must be \"text\", remove email validation and use pattern: \"^[^@]+@[^@]+\\.[^@]+$\"",
+      "Add placeholder to guide users: \"placeholder\": \"you@example.com\""
     ]
   }
 ]
