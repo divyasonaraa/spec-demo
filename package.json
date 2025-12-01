@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync-validate": "node tools/sync-and-validate-simple.mjs",
+    "validate": "node tools/debugger/cli/run-debugger.mjs",
+    "precommit": "npm run sync-validate"
   },
   "dependencies": {
     "autoprefixer": "^10.4.22",
@@ -21,6 +24,7 @@
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.8.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vue-tsc": "^3.1.4"

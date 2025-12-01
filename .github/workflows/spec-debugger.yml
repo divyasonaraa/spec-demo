@@ -21,7 +21,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Discover all form configs
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync TypeScript samples to JSON and validate
+        id: sync_validate
+        run: |
+          echo "🔄 Syncing TypeScript samples to JSON..."
+          node tools/sync-and-validate-simple.mjs
+        continue-on-error: true
+
+      - name: Discover all form configs (fallback to existing JSONs)
         id: discover
         run: |
           # Find all JSON files in public/examples/
