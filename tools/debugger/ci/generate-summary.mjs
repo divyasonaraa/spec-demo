@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * This script discovers TS samples, executes the TS-aware engine to collect findings,
@@ -11,7 +12,7 @@ import { join } from 'node:path';
 function discoverSamples() {
   try {
     const out = execSync('find src/config/samples -name "*.ts" -type f', { encoding: 'utf8' });
-    return out.split('\n').filter(Boolean);
+    return out.split('\n').filter(Boolean).map(p => resolve(p));
   } catch {
     return [];
   }
@@ -21,7 +22,8 @@ async function importTsConfig(tsPath) {
   const content = readFileSync(tsPath, 'utf8');
   // Try default export first
   const hasDefault = /export\s+default\s+/.test(content);
-  const mod = await import(join(process.cwd(), tsPath));
+  const fileUrl = pathToFileURL(tsPath).href;
+  const mod = await import(fileUrl);
   if (hasDefault && mod?.default) return mod.default;
   // Fallback: find named export with FormConfig type
   const m = content.match(/export\s+const\s+(\w+)\s*:\s*FormConfig/);
@@ -89,8 +91,20 @@ async function main() {
 
   for (const sample of samples) {
     const base = sample.split('/').pop().replace(/\.ts$/, '');
-    const cfg = await importTsConfig(sample);
-    if (!cfg) continue;
+    let cfg = null;
+    try {
+      cfg = await importTsConfig(sample);
+    } catch (e) {
+      // Record import error as a finding-like line
+      summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
+      warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nFailed to import config: ${e.message}`);
+      continue;
+    }
+    if (!cfg) {
+      summaryLines.push(`${base}\t1\t0\t0\t❌ Failed`);
+      warningsDetails.push(`⚠️ Warnings (Should Review)\n\n📄 ${base}.ts\nNo export matching FormConfig found.`);
+      continue;
+    }
     const findings = await runEngine(cfg);
     // attach file for formatting
     for (const f of findings) f.sample = sample.split('/').pop();
