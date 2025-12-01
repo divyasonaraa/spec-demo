@@ -1,7 +1,7 @@
 // Detects validation rules that don't match field types and impossible patterns
 export default function impossibleCombo({ config }) {
     const findings = []
-    
+
     for (const step of config.steps) {
         for (const field of step.fields) {
             // REAL PROBLEM: Email validation on non-email field type
@@ -22,13 +22,13 @@ export default function impossibleCombo({ config }) {
                     ]
                 })
             }
-            
+
             // REAL PROBLEM: Pattern validation conflicts with field constraints
             if (field.validation?.pattern && (field.validation?.minLength || field.validation?.maxLength)) {
                 const pattern = field.validation.pattern
                 const minLen = field.validation.minLength
                 const maxLen = field.validation.maxLength
-                
+
                 findings.push({
                     severity: 'info',
                     title: `Field "${field.name}" has both pattern and length constraints`,
@@ -46,7 +46,7 @@ export default function impossibleCombo({ config }) {
                     ]
                 })
             }
-            
+
             // REAL PROBLEM: Number field with string pattern validation
             if (field.type === 'number' && field.validation?.pattern) {
                 findings.push({
@@ -65,7 +65,7 @@ export default function impossibleCombo({ config }) {
                     ]
                 })
             }
-            
+
             // REAL PROBLEM: Required field with empty default value
             if (field.validation?.required && field.defaultValue === '') {
                 findings.push({
@@ -87,6 +87,6 @@ export default function impossibleCombo({ config }) {
             }
         }
     }
-    
+
     return findings
 }

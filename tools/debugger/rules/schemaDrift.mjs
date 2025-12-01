@@ -2,7 +2,7 @@
 export default function schemaDrift({ config }) {
     const findings = []
     const submit = config.submitConfig
-    
+
     if (!submit) {
         findings.push({
             severity: 'warning',
@@ -19,7 +19,7 @@ export default function schemaDrift({ config }) {
         })
         return findings
     }
-    
+
     // REAL PROBLEM: Invalid HTTP method
     const validMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
     if (submit.method && !validMethods.includes(submit.method.toUpperCase())) {
@@ -37,7 +37,7 @@ export default function schemaDrift({ config }) {
             ]
         })
     }
-    
+
     // REAL PROBLEM: Using api.example.com placeholder in production
     if (submit.endpoint && submit.endpoint.includes('api.example.com')) {
         findings.push({
@@ -54,13 +54,13 @@ export default function schemaDrift({ config }) {
             ]
         })
     }
-    
+
     // REAL PROBLEM: Missing Content-Type header for JSON POST
     if (submit.method === 'POST' || submit.method === 'PUT' || submit.method === 'PATCH') {
         const hasContentType = submit.headers && Object.keys(submit.headers).some(
             key => key.toLowerCase() === 'content-type'
         )
-        
+
         if (!hasContentType) {
             findings.push({
                 severity: 'warning',
@@ -77,7 +77,7 @@ export default function schemaDrift({ config }) {
             })
         }
     }
-    
+
     // REAL PROBLEM: stateTransitions typo or missing success handler
     if (submit.stateTransitions && !submit.stateTransitions.onSuccess) {
         findings.push({
@@ -94,6 +94,6 @@ export default function schemaDrift({ config }) {
             ]
         })
     }
-    
+
     return findings
 }

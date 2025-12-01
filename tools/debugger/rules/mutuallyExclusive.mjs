@@ -1,14 +1,14 @@
 // Detects dependency chain issues and missing parent fields
 export default function mutuallyExclusive({ config }) {
     const findings = []
-    
+
     for (const step of config.steps) {
         // REAL PROBLEM: Field has dependency but parent doesn't exist in config
         for (const field of step.fields) {
             if (field.dependency?.parent) {
                 const parentName = field.dependency.parent
                 const parentExists = step.fields.some(f => f.name === parentName)
-                
+
                 if (!parentExists) {
                     findings.push({
                         severity: 'error',
@@ -28,12 +28,12 @@ export default function mutuallyExclusive({ config }) {
                     })
                 }
             }
-            
+
             // REAL PROBLEM: showIf references non-existent field
             if (field.showIf?.field) {
                 const parentName = field.showIf.field
                 const parentExists = step.fields.some(f => f.name === parentName)
-                
+
                 if (!parentExists) {
                     findings.push({
                         severity: 'error',
@@ -54,11 +54,11 @@ export default function mutuallyExclusive({ config }) {
                 }
             }
         }
-        
+
         // REAL PROBLEM: Duplicate field names in same step
         const fieldNames = step.fields.map(f => f.name)
         const duplicates = fieldNames.filter((name, index) => fieldNames.indexOf(name) !== index)
-        
+
         if (duplicates.length > 0) {
             const uniqueDuplicates = [...new Set(duplicates)]
             findings.push({
@@ -76,6 +76,6 @@ export default function mutuallyExclusive({ config }) {
             })
         }
     }
-    
+
     return findings
 }

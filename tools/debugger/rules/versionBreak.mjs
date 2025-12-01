@@ -1,7 +1,7 @@
 // Detects missing required config properties and structure issues
 export default function versionBreak({ config }) {
     const findings = []
-    
+
     // REAL PROBLEM: Missing required id field
     if (!config.id) {
         findings.push({
@@ -18,7 +18,7 @@ export default function versionBreak({ config }) {
             ]
         })
     }
-    
+
     // REAL PROBLEM: Missing metadata
     if (!config.metadata) {
         findings.push({
@@ -50,7 +50,7 @@ export default function versionBreak({ config }) {
                 ]
             })
         }
-        
+
         if (!config.metadata.version) {
             findings.push({
                 severity: 'info',
@@ -67,7 +67,7 @@ export default function versionBreak({ config }) {
             })
         }
     }
-    
+
     // REAL PROBLEM: Empty or missing steps array
     if (!config.steps || !Array.isArray(config.steps)) {
         findings.push({
@@ -97,7 +97,7 @@ export default function versionBreak({ config }) {
             ]
         })
     }
-    
+
     // Check each step for required properties
     config.steps?.forEach((step, index) => {
         if (!step.id) {
@@ -114,7 +114,7 @@ export default function versionBreak({ config }) {
                 ]
             })
         }
-        
+
         if (!step.fields || !Array.isArray(step.fields)) {
             findings.push({
                 severity: 'error',
@@ -144,6 +144,6 @@ export default function versionBreak({ config }) {
             })
         }
     })
-    
+
     return findings
 }

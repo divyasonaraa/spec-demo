@@ -1,17 +1,17 @@
 // Detects when required conditional fields can't be filled because parent isn't set
 export default function requiredHidden({ config }) {
     const findings = []
-    
+
     for (const step of config.steps) {
         for (const field of step.fields) {
             const isRequired = field.validation?.required === true
             const hasShowIf = !!field.showIf
-            
+
             if (isRequired && hasShowIf) {
                 const parentField = field.showIf.field
                 const parentFieldObj = step.fields.find(f => f.name === parentField)
                 const isParentRequired = parentFieldObj?.validation?.required === true
-                
+
                 // REAL PROBLEM: Conditional required field but parent isn't required
                 if (!isParentRequired) {
                     findings.push({
@@ -35,6 +35,6 @@ export default function requiredHidden({ config }) {
             }
         }
     }
-    
+
     return findings
 }

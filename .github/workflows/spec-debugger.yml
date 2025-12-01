@@ -153,10 +153,10 @@ jobs:
                   # Extract each error with details
                   jq -r '.[] | select(.severity=="error") | 
                     "**" + .title + "**\n\n" +
-                    "**Reason:** " + .reason + "\n\n" +
-                    "**Location:** \`" + (.paths | join(", ")) + "\`\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
                     "**Fix:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + (.key + ". " + .value)) | join("\n")) + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
                     "\n\n---\n"' "$result" >> summary.md
                 fi
               fi
@@ -180,10 +180,10 @@ jobs:
                   
                   jq -r '.[] | select(.severity=="warning") | 
                     "**" + .title + "**\n\n" +
-                    "**Reason:** " + .reason + "\n\n" +
-                    "**Location:** \`" + (.paths | join(", ")) + "\`\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
                     "**Fix:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + (.key + ". " + .value)) | join("\n")) + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
                     "\n\n---\n"' "$result" >> summary.md
                 fi
               fi
@@ -208,10 +208,10 @@ jobs:
                   
                   jq -r '.[] | select(.severity=="info") | 
                     "**" + .title + "**\n\n" +
-                    "**Reason:** " + .reason + "\n\n" +
-                    "**Location:** \`" + (.paths | join(", ")) + "\`\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
                     "**Suggestions:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + (.key + ". " + .value)) | join("\n")) + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
                     "\n\n---\n"' "$result" >> summary.md
                 fi
               fi
