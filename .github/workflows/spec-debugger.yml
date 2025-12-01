@@ -21,8 +21,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (include dev)
-        run: npm ci --include=dev
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure tsconfig-paths installed
+        run: |
+          npm install tsconfig-paths@^4.2.0 --no-save
+          node -e "console.log(require.resolve('tsconfig-paths'))"
 
       - name: Ensure tsx and tsconfig-paths available
         run: |
