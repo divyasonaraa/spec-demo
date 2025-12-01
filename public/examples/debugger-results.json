@@ -1,5 +1,20 @@
 [
   {
+    "severity": "warning",
+    "title": "Number field \"phone\" has pattern validation",
+    "explanation": "Field \"phone\" has type=\"number\" but validation.pattern=\"^\\+?[1-9]\\d{1,14}$\". Pattern validation only works on strings. For number fields, use min/max/step instead. Current pattern will be ignored by browsers.",
+    "jsonPaths": [
+      "steps[id=contact-details].fields[name=phone].type",
+      "steps[id=contact-details].fields[name=phone].validation.pattern"
+    ],
+    "reproducerState": {},
+    "fixGuidance": [
+      "Remove pattern and use min/max: { \"min\": 0, \"max\": 999, \"step\": 1 }",
+      "If you need pattern (e.g., \"must be 3 digits\"), change type to \"text\" or \"tel\"",
+      "For formatted numbers (e.g., phone), use type=\"tel\" with pattern instead of type=\"number\""
+    ]
+  },
+  {
     "severity": "error",
     "title": "Placeholder API endpoint detected",
     "explanation": "submitConfig.endpoint uses \"api.example.com\" which is a documentation placeholder, not a real API. Forms will fail to submit. This usually means the config was copied from a template and the endpoint wasn't updated. Replace with your actual API URL.",
