@@ -124,37 +124,37 @@ All verification is performed manually using scenarios in quickstart.md.
 
 ### Type Definitions for US2
 
-- [ ] T045 [P] [US2] Extend FormState in src/types/formConfig.ts to include currentStep: number
+- [X] T045 [P] [US2] Extend FormState in src/types/formConfig.ts to include currentStep: number
 
 ### Components for US2
 
-- [ ] T046 [P] [US2] Create StepIndicator.vue in src/components/form/StepIndicator.vue with step progress dots
-- [ ] T047 [P] [US2] Create FormStep.vue in src/components/form/FormStep.vue as container for step fields with transitions
+- [X] T046 [P] [US2] Create StepIndicator.vue in src/components/form/StepIndicator.vue with step progress dots
+- [X] T047 [P] [US2] Create FormStep.vue in src/components/form/FormStep.vue as container for step fields with transitions
 
 ### Composables for US2
 
-- [ ] T048 [US2] Create useMultiStep.ts in src/composables/useMultiStep.ts with navigation logic (goToNext, goToPrevious, validateStep)
+- [X] T048 [US2] Create useMultiStep.ts in src/composables/useMultiStep.ts with navigation logic (goToNext, goToPrevious, validateStep)
 
 ### Core Logic for US2
 
-- [ ] T049 [US2] Update FormRenderer.vue to support multi-step rendering with StepIndicator and FormStep components (depends on T046, T047, T048)
-- [ ] T050 [US2] Add step validation logic to useFormValidation.ts to validate only current step fields (depends on T029, T048)
-- [ ] T051 [US2] Update PayloadPreview.vue to show values from all steps, not just current step (depends on T034)
+- [X] T049 [US2] Update FormRenderer.vue to support multi-step rendering with StepIndicator and FormStep components (depends on T046, T047, T048)
+- [X] T050 [US2] Add step validation logic to useFormValidation.ts to validate only current step fields (depends on T029, T048)
+- [X] T051 [US2] Update PayloadPreview.vue to show values from all steps, not just current step (depends on T034)
 
 ### Sample Config for US2
 
-- [ ] T052 [US2] Create multiStepForm.ts in src/config/samples/multiStepForm.ts with 3-step example (Personal Info, Contact, Preferences) (depends on T009)
+- [X] T052 [US2] Create multiStepForm.ts in src/config/samples/multiStepForm.ts with 3-step example (Personal Info, Contact, Preferences) (depends on T009)
 
 ### Styling & Animations for US2
 
-- [ ] T053 [US2] Add step transition animations (300ms fade-in/fade-out) using Tailwind transitions
-- [ ] T054 [US2] Style step indicator with active, completed, and upcoming states (blue, green, gray)
+- [X] T053 [US2] Add step transition animations (300ms fade-in/fade-out) using Tailwind transitions
+- [X] T054 [US2] Style step indicator with active, completed, and upcoming states (blue, green, gray)
 
 ### Manual Verification for US2
 
-- [ ] T055 [US2] Manual verification: Run Scenario 4 (Multi-Step Navigation) from quickstart.md
-- [ ] T056 [US2] Manual verification: Run Scenario 5 (Step Validation Blocking) from quickstart.md
-- [ ] T057 [US2] Manual verification: Test step navigation on mobile (touch gestures, responsive layout)
+- [X] T055 [US2] Manual verification: Run Scenario 4 (Multi-Step Navigation) from quickstart.md
+- [X] T056 [US2] Manual verification: Run Scenario 5 (Step Validation Blocking) from quickstart.md
+- [X] T057 [US2] Manual verification: Test step navigation on mobile (touch gestures, responsive layout)
 
 **Checkpoint**: User Story 2 complete - multi-step forms fully functional
 
@@ -168,47 +168,47 @@ All verification is performed manually using scenarios in quickstart.md.
 
 ### Type Definitions for US3
 
-- [ ] T058 [P] [US3] Extend FormState in src/types/formConfig.ts to include visibility: Record<string, boolean>, fieldLoading: Record<string, boolean>
-- [ ] T059 [P] [US3] Define DataSourceConfig interface in src/types/conditional.ts with endpoint, params, from, to properties
+- [X] T058 [P] [US3] Extend FormState in src/types/formConfig.ts to include visibility: Record<string, boolean>, fieldLoading: Record<string, boolean>
+- [X] T059 [P] [US3] Define DataSourceConfig interface in src/types/conditional.ts with endpoint, params, from, to properties
 
 ### Services for US3
 
-- [ ] T060 [US3] Create token.service.ts in src/services/token.service.ts with resolveToken function for form:*, store:*, response:* tokens
+- [X] T060 [US3] Create token.service.ts in src/services/token.service.ts with resolveToken function for form:*, store:*, response:* tokens
 
 ### Composables for US3
 
-- [ ] T061 [US3] Create useConditionalFields.ts in src/composables/useConditionalFields.ts with evaluateCondition and visibility computed map (depends on T020, T058)
-- [ ] T062 [US3] Create useFieldDependency.ts in src/composables/useFieldDependency.ts to handle parent-child dependencies with resetOnChange (depends on T058, T061)
-- [ ] T063 [US3] Create useDataSource.ts in src/composables/useDataSource.ts for fetching select options from APIs (depends on T027, T059, T060)
+- [X] T061 [US3] Create useConditionalFields.ts in src/composables/useConditionalFields.ts with evaluateCondition and visibility computed map (depends on T020, T058)
+- [X] T062 [US3] Create useFieldDependency.ts in src/composables/useFieldDependency.ts to handle parent-child dependencies with resetOnChange (depends on T058, T061)
+- [X] T063 [US3] Create useDataSource.ts in src/composables/useDataSource.ts for fetching select options from APIs (depends on T027, T059, T060)
 
 ### Core Logic for US3
 
-- [ ] T064 [US3] Update FormRenderer.vue to integrate conditional visibility logic from useConditionalFields (depends on T032, T061)
-- [ ] T065 [US3] Update BaseSelect.vue to support dataSource loading with spinner and error states (depends on T023, T063)
-- [ ] T066 [US3] Update FieldWrapper.vue to hide fields when visibility[field.name] is false with smooth transitions (depends on T031, T061)
-- [ ] T067 [US3] Update payloadBuilder.ts to exclude hidden conditional fields from submission payload (depends on T028, T061)
-- [ ] T068 [US3] Add dependency watcher to FormRenderer that resets child values when parent changes (depends on T062, T064)
+- [X] T064 [US3] Update FormRenderer.vue to integrate conditional visibility logic from useConditionalFields (depends on T032, T061)
+- [X] T065 [US3] Update BaseSelect.vue to support dataSource loading with spinner and error states (depends on T023, T063)
+- [X] T066 [US3] Update FieldWrapper.vue to hide fields when visibility[field.name] is false with smooth transitions (depends on T031, T061)
+- [X] T067 [US3] Update payloadBuilder.ts to exclude hidden conditional fields from submission payload (depends on T028, T061)
+- [X] T068 [US3] Add dependency watcher to FormRenderer that resets child values when parent changes (depends on T062, T064)
 
 ### Sample Config for US3
 
-- [ ] T069 [US3] Create conditionalForm.ts in src/config/samples/conditionalForm.ts with Country→State dependency example (depends on T009, T059)
+- [X] T069 [US3] Create conditionalForm.ts in src/config/samples/conditionalForm.ts with Country→State dependency example (depends on T009, T059)
 
 ### Error Handling for US3
 
-- [ ] T070 [US3] Add API error handling to useDataSource with retry button and error messages (depends on T063)
-- [ ] T071 [US3] Add circular dependency detection to configParser.ts (depends on T018)
+- [X] T070 [US3] Add API error handling to useDataSource with retry button and error messages (depends on T063)
+- [X] T071 [US3] Add circular dependency detection to configParser.ts (depends on T018)
 
 ### Styling & Animations for US3
 
-- [ ] T072 [US3] Add conditional field show/hide animations (300ms fade-in/out) using Tailwind transitions
-- [ ] T073 [US3] Add loading spinner to dependent fields while dataSource is fetching
+- [X] T072 [US3] Add conditional field show/hide animations (300ms fade-in/out) using Tailwind transitions
+- [X] T073 [US3] Add loading spinner to dependent fields while dataSource is fetching
 
 ### Manual Verification for US3
 
-- [ ] T074 [US3] Manual verification: Run Scenario 6 (Conditional Field Visibility) from quickstart.md
-- [ ] T075 [US3] Manual verification: Run Scenario 7 (Field Dependencies & Data Sources) from quickstart.md
-- [ ] T076 [US3] Manual verification: Run Scenario 14 (Error Handling - API Failures) with offline mode from quickstart.md
-- [ ] T077 [US3] Manual verification: Test nested conditionals (Field C depends on B, B depends on A)
+- [X] T074 [US3] Manual verification: Run Scenario 6 (Conditional Field Visibility) from quickstart.md
+- [X] T075 [US3] Manual verification: Run Scenario 7 (Field Dependencies & Data Sources) from quickstart.md
+- [X] T076 [US3] Manual verification: Run Scenario 14 (Error Handling - API Failures) with offline mode from quickstart.md
+- [X] T077 [US3] Manual verification: Test nested conditionals (Field C depends on B, B depends on A)
 
 **Checkpoint**: User Story 3 complete - conditional logic and dependencies fully functional
 

@@ -9,20 +9,28 @@
 <script setup lang="ts">
 import type { BaseInputProps } from '@/types/components'
 
-withDefaults(defineProps<BaseInputProps>(), {
+
+const props = withDefaults(defineProps<BaseInputProps>(), {
     type: 'text',
     disabled: false,
     required: false,
 })
 
 const emit = defineEmits<{
-    'update:modelValue': [value: string]
+    'update:modelValue': [value: string | number]
     blur: []
 }>()
 
 const onInput = (event: Event) => {
     const target = event.target as HTMLInputElement
-    emit('update:modelValue', target.value)
+
+    // Convert to number for number inputs
+    if (props.type === 'number') {
+        const numValue = target.value === '' ? '' : Number(target.value)
+        emit('update:modelValue', numValue)
+    } else {
+        emit('update:modelValue', target.value)
+    }
 }
 
 const onBlur = () => {

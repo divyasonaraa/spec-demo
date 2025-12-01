@@ -204,7 +204,7 @@ export const multiStepForm: FormConfig = {
         },
     ],
     submitConfig: {
-        endpoint: 'https://api.example.com/onboarding',
+        endpoint: 'https://jsonplaceholder.typicode.com/posts',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

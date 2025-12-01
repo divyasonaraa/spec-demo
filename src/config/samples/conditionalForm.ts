@@ -98,45 +98,13 @@ export const conditionalForm: FormConfig = {
                     label: 'Country',
                     type: 'select',
                     placeholder: 'Select your country',
-                    props: {
-                        options: [
-                            { value: 'us', label: 'United States' },
-                            { value: 'ca', label: 'Canada' },
-                            { value: 'gb', label: 'United Kingdom' },
-                            { value: 'au', label: 'Australia' },
-                        ],
-                    },
-                    validation: {
-                        required: true,
-                        requiredMessage: 'Please select your country',
-                    },
-                },
-                {
-                    name: 'state',
-                    label: 'State / Province',
-                    type: 'select',
-                    placeholder: 'Select your state',
-                    dependency: {
-                        parent: 'country',
-                        resetOnChange: true,
-                        disableUntilParent: true,
-                        reloadOnParentChange: true,
-                    },
-                    showIf: {
-                        field: 'country',
-                        operator: 'in',
-                        value: ['us', 'ca'],
-                    },
                     dataSource: {
-                        endpoint: 'https://api.example.com/states',
+                        endpoint: 'https://restcountries.com/v3.1/all',
                         method: 'GET',
-                        params: {
-                            country: 'form:country',
-                        },
-                        from: 'data.states',
+                        from: '', // Root level is array
                         to: {
-                            label: 'name',
-                            value: 'code',
+                            label: 'name.common',
+                            value: 'cca2',
                         },
                         cache: {
                             enabled: true,
@@ -145,7 +113,31 @@ export const conditionalForm: FormConfig = {
                     },
                     validation: {
                         required: true,
-                        requiredMessage: 'Please select your state',
+                        requiredMessage: 'Please select your country',
+                    },
+                },
+                {
+                    name: 'region',
+                    label: 'Region',
+                    type: 'select',
+                    placeholder: 'Select a region',
+                    dependency: {
+                        parent: 'country',
+                        resetOnChange: true,
+                        disableUntilParent: false,
+                    },
+                    props: {
+                        options: [
+                            { value: 'americas', label: 'Americas' },
+                            { value: 'europe', label: 'Europe' },
+                            { value: 'asia', label: 'Asia' },
+                            { value: 'africa', label: 'Africa' },
+                            { value: 'oceania', label: 'Oceania' },
+                        ],
+                    },
+                    validation: {
+                        required: true,
+                        requiredMessage: 'Please select a region',
                     },
                 },
                 {
@@ -223,7 +215,7 @@ export const conditionalForm: FormConfig = {
         },
     ],
     submitConfig: {
-        endpoint: 'https://api.example.com/register',
+        endpoint: 'https://jsonplaceholder.typicode.com/posts',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

@@ -19,12 +19,27 @@
                         :aria-describedby="getAriaDescribedby(field.name, field.helpText)" v-bind="getFieldProps(field)"
                         @update:model-value="updateFieldValue(field.name, $event)"
                         @blur="handleFieldBlur(field.name)" />
+                    
+                    <!-- Show data source error if field has data source and error occurred -->
+                    <p v-if="field.dataSource && dataSource.errors.value[field.name]" 
+                       class="mt-2 text-sm text-error-600 flex items-center gap-2">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                        <span>{{ dataSource.errors.value[field.name] }}</span>
+                        <button @click="dataSource.retryFetch(field.name, field.dataSource!)" 
+                                type="button"
+                                class="ml-auto underline hover:no-underline font-medium">
+                            Retry
+                        </button>
+                    </p>
                 </FieldWrapper>
             </div>
         </FormStep>
 
         <!-- Navigation buttons -->
         <div class="flex justify-between pt-4 border-t border-gray-200">
+            <!-- Previous button - always enabled to allow editing previous steps -->
             <BaseButton v-if="isMultiStep && !multiStep?.isFirstStep" type="button" variant="secondary"
                 @click="handlePrevious">
                 Previous
@@ -32,8 +47,9 @@
             <div v-else />
 
             <div class="flex gap-3">
+                <!-- Next button - disabled only if required fields are empty, allows proceeding even with API errors -->
                 <BaseButton v-if="isMultiStep && !multiStep?.isLastStep" type="button"
-                    :disabled="!multiStep?.canProceed" @click="handleNext">
+                    :disabled="!canProceedToNext" @click="handleNext">
                     Next
                 </BaseButton>
                 <BaseButton v-else type="submit" :loading="formState.submitState === 'submitting'"
@@ -145,6 +161,21 @@ const { submitForm, submitResponse } = useFormSubmission(
 
 // Multi-step composable (only for multi-step forms)
 const multiStep = isMultiStep.value ? useMultiStep(formConfig, formState, validateFields) : null
+
+// Check if user can proceed to next step (less strict - allows proceeding even with API errors)
+const canProceedToNext = computed(() => {
+    if (!isMultiStep.value) return true
+    
+    // Check if all required fields in current step are filled
+    const allRequiredFilled = currentStepFields.value
+        .filter((field) => field.validation?.required === true)
+        .every((field) => {
+            const value = formState.value.values[field.name]
+            return value !== undefined && value !== null && value !== ''
+        })
+    
+    return allRequiredFilled
+})
 
 // Track transition direction for animations
 const transitionDirection = ref<'slide-left' | 'slide-right' | 'fade'>('fade')
@@ -280,6 +311,13 @@ function handlePrevious() {
  * Handles form submission
  */
 async function handleSubmit() {
+    // For multi-step forms, pressing Enter should go to next step, not submit
+    if (isMultiStep.value && multiStep && !multiStep.isLastStep.value) {
+        await handleNext()
+        return
+    }
+
+    // Final step or single-step form: validate and submit
     const isValid = await validateAll()
 
     if (!isValid) {

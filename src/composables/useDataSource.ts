@@ -62,17 +62,23 @@ export function useDataSource(formState: Ref<FormState>) {
             })
 
             // Extract options from response using 'from' path
-            const data = getNestedValue(response.data, config.from)
+            const data = config.from ? getNestedValue(response.data, config.from) : response.data
 
             if (!Array.isArray(data)) {
-                throw new Error(`Expected array at path "${config.from}", got ${typeof data}`)
+                throw new Error(`Expected array at path "${config.from || 'root'}", got ${typeof data}`)
             }
 
             // Map data to SelectOption format
-            const mappedOptions: SelectOption[] = data.map((item: any) => ({
-                value: String(item[config.to.value]),
-                label: String(item[config.to.label]),
-            }))
+            const mappedOptions: SelectOption[] = data.map((item: any) => {
+                // Support nested properties like 'name.common'
+                const labelValue = getNestedValue(item, config.to.label)
+                const valueValue = getNestedValue(item, config.to.value)
+                
+                return {
+                    value: String(valueValue),
+                    label: String(labelValue),
+                }
+            })
 
             // Update state
             options.value[fieldName] = mappedOptions

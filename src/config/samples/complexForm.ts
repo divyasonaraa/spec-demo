@@ -463,7 +463,7 @@ export const complexForm: FormConfig = {
         loadingText: 'Processing...',
     },
     submitEndpoint: {
-        url: 'https://api.example.com/orders',
+        url: 'https://jsonplaceholder.typicode.com/posts',
         method: 'POST',
     },
     onSuccess: {
