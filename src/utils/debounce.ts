@@ -5,23 +5,23 @@
  * @returns Debounced function
  */
 export function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
+    func: T,
+    wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout> | null = null
+    let timeout: ReturnType<typeof setTimeout> | null = null
 
-  return function executedFunction(...args: Parameters<T>) {
-    const later = () => {
-      timeout = null
-      func(...args)
-    }
+    return function executedFunction(...args: Parameters<T>) {
+        const later = () => {
+            timeout = null
+            func(...args)
+        }
 
-    if (timeout) {
-      clearTimeout(timeout)
+        if (timeout) {
+            clearTimeout(timeout)
+        }
+
+        timeout = setTimeout(later, wait)
     }
-    
-    timeout = setTimeout(later, wait)
-  }
 }
 
 /**
@@ -31,18 +31,18 @@ export function debounce<T extends (...args: any[]) => any>(
  * @returns Throttled function
  */
 export function throttle<T extends (...args: any[]) => any>(
-  func: T,
-  limit: number
+    func: T,
+    limit: number
 ): (...args: Parameters<T>) => void {
-  let inThrottle: boolean = false
+    let inThrottle: boolean = false
 
-  return function executedFunction(...args: Parameters<T>) {
-    if (!inThrottle) {
-      func(...args)
-      inThrottle = true
-      setTimeout(() => {
-        inThrottle = false
-      }, limit)
+    return function executedFunction(...args: Parameters<T>) {
+        if (!inThrottle) {
+            func(...args)
+            inThrottle = true
+            setTimeout(() => {
+                inThrottle = false
+            }, limit)
+        }
     }
-  }
 }

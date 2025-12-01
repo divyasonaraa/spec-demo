@@ -8,32 +8,32 @@ import type { FieldDefinition } from '@/types/formConfig'
  * Supports dot notation for nested objects: "user.profile.name" → { user: { profile: { name: value } } }
  */
 export function buildPayload(
-  values: Record<string, any>,
-  fields: FieldDefinition[],
-  visibleFields?: Set<string>
+    values: Record<string, any>,
+    fields: FieldDefinition[],
+    visibleFields?: Set<string>
 ): Record<string, any> {
-  const payload: Record<string, any> = {}
+    const payload: Record<string, any> = {}
 
-  fields.forEach(field => {
-    // Skip fields that are not visible (conditional fields)
-    if (visibleFields && !visibleFields.has(field.name)) {
-      return
-    }
+    fields.forEach(field => {
+        // Skip fields that are not visible (conditional fields)
+        if (visibleFields && !visibleFields.has(field.name)) {
+            return
+        }
 
-    // Skip undefined values
-    const value = values[field.name]
-    if (value === undefined) {
-      return
-    }
+        // Skip undefined values
+        const value = values[field.name]
+        if (value === undefined) {
+            return
+        }
 
-    // Use submitField mapping if specified, otherwise use field name
-    const targetPath = field.submitField || field.name
+        // Use submitField mapping if specified, otherwise use field name
+        const targetPath = field.submitField || field.name
 
-    // Set value in payload using dot notation
-    setNestedValue(payload, targetPath, value)
-  })
+        // Set value in payload using dot notation
+        setNestedValue(payload, targetPath, value)
+    })
 
-  return payload
+    return payload
 }
 
 /**
@@ -41,21 +41,21 @@ export function buildPayload(
  * Example: setNestedValue(obj, "user.profile.name", "John") → { user: { profile: { name: "John" } } }
  */
 function setNestedValue(obj: Record<string, any>, path: string, value: any): void {
-  const keys = path.split('.')
-  let current = obj
+    const keys = path.split('.')
+    let current = obj
 
-  // Navigate/create nested structure
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i]!
-    if (!current[key] || typeof current[key] !== 'object') {
-      current[key] = {}
+    // Navigate/create nested structure
+    for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i]!
+        if (!current[key] || typeof current[key] !== 'object') {
+            current[key] = {}
+        }
+        current = current[key]
     }
-    current = current[key]
-  }
 
-  // Set the final value
-  const lastKey = keys[keys.length - 1]!
-  current[lastKey] = value
+    // Set the final value
+    const lastKey = keys[keys.length - 1]!
+    current[lastKey] = value
 }
 
 /**
@@ -63,17 +63,17 @@ function setNestedValue(obj: Record<string, any>, path: string, value: any): voi
  * Example: getNestedValue({ user: { profile: { name: "John" } } }, "user.profile.name") → "John"
  */
 export function getNestedValue(obj: Record<string, any>, path: string): any {
-  const keys = path.split('.')
-  let current = obj
+    const keys = path.split('.')
+    let current = obj
 
-  for (const key of keys) {
-    if (current === null || current === undefined) {
-      return undefined
+    for (const key of keys) {
+        if (current === null || current === undefined) {
+            return undefined
+        }
+        current = current[key]
     }
-    current = current[key]
-  }
 
-  return current
+    return current
 }
 
 /**
@@ -81,17 +81,17 @@ export function getNestedValue(obj: Record<string, any>, path: string): any {
  * Example: { user: { name: "John" } } → { "user.name": "John" }
  */
 export function flattenObject(obj: Record<string, any>, prefix = ''): Record<string, any> {
-  const result: Record<string, any> = {}
+    const result: Record<string, any> = {}
 
-  for (const [key, value] of Object.entries(obj)) {
-    const newKey = prefix ? `${prefix}.${key}` : key
+    for (const [key, value] of Object.entries(obj)) {
+        const newKey = prefix ? `${prefix}.${key}` : key
 
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      Object.assign(result, flattenObject(value, newKey))
-    } else {
-      result[newKey] = value
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            Object.assign(result, flattenObject(value, newKey))
+        } else {
+            result[newKey] = value
+        }
     }
-  }
 
-  return result
+    return result
 }

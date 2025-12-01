@@ -1,171 +1,220 @@
 {
-  "id": "conditional-form-001",
-  "metadata": {
-    "title": "Account Registration with Conditional Logic",
-    "description": "Form with dynamic fields based on user selections",
-    "version": "1.0.0",
-    "tags": ["conditional", "dependencies", "data-source"]
-  },
-  "steps": [
-    {
-      "id": "account-setup",
-      "title": "Account Setup",
-      "description": "Configure your account preferences",
-      "fields": [
-        {
-          "name": "accountType",
-          "label": "Account Type",
-          "type": "radio",
-          "props": {
-            "options": [
-              { "value": "personal", "label": "Personal" },
-              { "value": "business", "label": "Business" }
-            ]
-          },
-          "validation": {
-            "required": true,
-            "requiredMessage": "Please select an account type"
-          }
-        },
-        {
-          "name": "fullName",
-          "label": "Full Name",
-          "type": "text",
-          "placeholder": "Enter your full name",
-          "validation": {
-            "required": true,
-            "requiredMessage": "Full name is required",
-            "minLength": 2,
-            "minLengthMessage": "Name must be at least 2 characters"
-          }
-        },
-        {
-          "name": "companyName",
-          "label": "Company Name",
-          "type": "text",
-          "placeholder": "Enter company name",
-          "showIf": {
-            "field": "accountType",
-            "operator": "equals",
-            "value": "business"
-          },
-          "validation": {
-            "required": true,
-            "requiredMessage": "Company name is required for business accounts",
-            "minLength": 2
-          }
-        },
-        {
-          "name": "taxId",
-          "label": "Tax ID",
-          "type": "text",
-          "placeholder": "XX-1234567",
-          "showIf": {
-            "field": "accountType",
-            "operator": "equals",
-            "value": "business"
-          },
-          "validation": {
-            "required": true,
-            "pattern": "^[A-Z]{2}-\\d{7}$",
-            "patternMessage": "Format must be XX-0000000"
-          }
-        },
-        {
-          "name": "industry",
-          "label": "Industry",
-          "type": "select",
-          "placeholder": "Select industry",
-          "showIf": {
-            "field": "accountType",
-            "operator": "equals",
-            "value": "business"
-          },
-          "props": {
-            "options": [
-              { "value": "tech", "label": "Technology" },
-              { "value": "finance", "label": "Finance" },
-              { "value": "healthcare", "label": "Healthcare" },
-              { "value": "retail", "label": "Retail" },
-              { "value": "manufacturing", "label": "Manufacturing" },
-              { "value": "other", "label": "Other" }
-            ]
-          },
-          "validation": {
-            "required": true,
-            "requiredMessage": "Please select your industry"
-          }
-        },
-        {
-          "name": "email",
-          "label": "Email Address",
-          "type": "email",
-          "placeholder": "you@example.com",
-          "validation": {
-            "required": true,
-            "email": true,
-            "requiredMessage": "Email is required"
-          }
-        },
-        {
-          "name": "country",
-          "label": "Country",
-          "type": "select",
-          "placeholder": "Select your country",
-          "props": {
-            "options": [
-              { "value": "US", "label": "United States" },
-              { "value": "CA", "label": "Canada" },
-              { "value": "UK", "label": "United Kingdom" },
-              { "value": "AU", "label": "Australia" }
-            ]
-          },
-          "validation": {
-            "required": true,
-            "requiredMessage": "Please select your country"
-          }
-        },
-        {
-          "name": "state",
-          "label": "State/Province",
-          "type": "select",
-          "placeholder": "Select state",
-          "dependency": {
-            "parent": "country",
-            "resetOnChange": true,
-            "disableUntilParent": true
-          },
-          "props": {
-            "options": [
-              { "value": "NY", "label": "New York" },
-              { "value": "CA", "label": "California" },
-              { "value": "TX", "label": "Texas" }
-            ]
-          },
-          "validation": {
-            "required": true,
-            "requiredMessage": "Please select your state"
-          }
-        }
-      ]
-    }
-  ],
-  "submitConfig": {
-    "endpoint": "https://api.example.com/register",
-    "method": "POST",
-    "headers": {
-      "Content-Type": "application/json"
+    "id": "conditional-form-001",
+    "metadata": {
+        "title": "Account Registration with Conditional Logic",
+        "description": "Form with dynamic fields based on user selections",
+        "version": "1.0.0",
+        "tags": [
+            "conditional",
+            "dependencies",
+            "data-source"
+        ]
     },
-    "stateTransitions": {
-      "onSuccess": {
-        "action": "showMessage",
-        "message": "Account created successfully!",
-        "target": "/dashboard"
-      },
-      "onError": {
-        "action": "showMessage",
-        "message": "Registration failed. Please try again."
-      }
+    "steps": [
+        {
+            "id": "account-setup",
+            "title": "Account Setup",
+            "description": "Configure your account preferences",
+            "fields": [
+                {
+                    "name": "accountType",
+                    "label": "Account Type",
+                    "type": "radio",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "personal",
+                                "label": "Personal"
+                            },
+                            {
+                                "value": "business",
+                                "label": "Business"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select an account type"
+                    }
+                },
+                {
+                    "name": "fullName",
+                    "label": "Full Name",
+                    "type": "text",
+                    "placeholder": "Enter your full name",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Full name is required",
+                        "minLength": 2,
+                        "minLengthMessage": "Name must be at least 2 characters"
+                    }
+                },
+                {
+                    "name": "companyName",
+                    "label": "Company Name",
+                    "type": "text",
+                    "placeholder": "Enter company name",
+                    "showIf": {
+                        "field": "accountType",
+                        "operator": "equals",
+                        "value": "business"
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Company name is required for business accounts",
+                        "minLength": 2
+                    }
+                },
+                {
+                    "name": "taxId",
+                    "label": "Tax ID",
+                    "type": "text",
+                    "placeholder": "XX-1234567",
+                    "showIf": {
+                        "field": "accountType",
+                        "operator": "equals",
+                        "value": "business"
+                    },
+                    "validation": {
+                        "required": true,
+                        "pattern": "^[A-Z]{2}-\\d{7}$",
+                        "patternMessage": "Format must be XX-0000000"
+                    }
+                },
+                {
+                    "name": "industry",
+                    "label": "Industry",
+                    "type": "select",
+                    "placeholder": "Select industry",
+                    "showIf": {
+                        "field": "accountType",
+                        "operator": "equals",
+                        "value": "business"
+                    },
+                    "props": {
+                        "options": [
+                            {
+                                "value": "tech",
+                                "label": "Technology"
+                            },
+                            {
+                                "value": "finance",
+                                "label": "Finance"
+                            },
+                            {
+                                "value": "healthcare",
+                                "label": "Healthcare"
+                            },
+                            {
+                                "value": "retail",
+                                "label": "Retail"
+                            },
+                            {
+                                "value": "manufacturing",
+                                "label": "Manufacturing"
+                            },
+                            {
+                                "value": "other",
+                                "label": "Other"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select your industry"
+                    }
+                },
+                {
+                    "name": "email",
+                    "label": "Email Address",
+                    "type": "email",
+                    "placeholder": "you@example.com",
+                    "validation": {
+                        "required": true,
+                        "email": true,
+                        "requiredMessage": "Email is required"
+                    }
+                },
+                {
+                    "name": "country",
+                    "label": "Country",
+                    "type": "select",
+                    "placeholder": "Select your country",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "US",
+                                "label": "United States"
+                            },
+                            {
+                                "value": "CA",
+                                "label": "Canada"
+                            },
+                            {
+                                "value": "UK",
+                                "label": "United Kingdom"
+                            },
+                            {
+                                "value": "AU",
+                                "label": "Australia"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select your country"
+                    }
+                },
+                {
+                    "name": "state",
+                    "label": "State/Province",
+                    "type": "select",
+                    "placeholder": "Select state",
+                    "dependency": {
+                        "parent": "country",
+                        "resetOnChange": true,
+                        "disableUntilParent": true
+                    },
+                    "props": {
+                        "options": [
+                            {
+                                "value": "NY",
+                                "label": "New York"
+                            },
+                            {
+                                "value": "CA",
+                                "label": "California"
+                            },
+                            {
+                                "value": "TX",
+                                "label": "Texas"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select your state"
+                    }
+                }
+            ]
+        }
+    ],
+    "submitConfig": {
+        "endpoint": "https://api.example.com/register",
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "stateTransitions": {
+            "onSuccess": {
+                "action": "showMessage",
+                "message": "Account created successfully!",
+                "target": "/dashboard"
+            },
+            "onError": {
+                "action": "showMessage",
+                "message": "Registration failed. Please try again."
+            }
+        }
     }
-  }
 }
