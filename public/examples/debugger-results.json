@@ -8,8 +8,7 @@
     ],
     "reproducerState": {
       "accountType": "business",
-      "companyName": "",
-      "newsletter": false
+      "companyName": ""
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
@@ -24,11 +23,61 @@
     ],
     "reproducerState": {
       "accountType": "business",
-      "companyName": "",
-      "newsletter": false
+      "companyName": ""
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"companyName\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=companyName]",
+      "steps[].fields[name=companyName].showIf"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"taxId\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=taxId]",
+      "steps[].fields[name=taxId].showIf"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"industry\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=industry]",
+      "steps[].fields[name=industry].showIf"
+    ],
+    "reproducerState": {
+      "subscribe": true,
+      "unsubscribe": true
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
     ]
   },
   {
@@ -41,8 +90,7 @@
     ],
     "reproducerState": {
       "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
+      "unsubscribe": true
     },
     "fixGuidance": [
       "Ensure only one of subscribe/unsubscribe can be true"
@@ -57,8 +105,7 @@
     ],
     "reproducerState": {
       "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
+      "unsubscribe": true
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
@@ -73,11 +120,61 @@
     ],
     "reproducerState": {
       "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
+      "unsubscribe": true
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"companyName\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=companyName]",
+      "steps[].fields[name=companyName].showIf"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"taxId\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=taxId]",
+      "steps[].fields[name=taxId].showIf"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
+    ]
+  },
+  {
+    "severity": "error",
+    "title": "Required field hidden by conditional visibility",
+    "explanation": "Field \"industry\" is required but hidden due to showIf",
+    "jsonPaths": [
+      "steps[].fields[name=industry]",
+      "steps[].fields[name=industry].showIf"
+    ],
+    "reproducerState": {
+      "age": -1,
+      "parentConsent": false
+    },
+    "fixGuidance": [
+      "Relax showIf or remove required on this field",
+      "Ensure required fields are always visible or have defaults"
     ]
   },
   {
@@ -90,8 +187,7 @@
     ],
     "reproducerState": {
       "age": -1,
-      "parentConsent": false,
-      "newsletter": false
+      "parentConsent": false
     },
     "fixGuidance": [
       "Validate age >= 0",
@@ -107,8 +203,7 @@
     ],
     "reproducerState": {
       "age": -1,
-      "parentConsent": false,
-      "newsletter": false
+      "parentConsent": false
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
@@ -123,8 +218,7 @@
     ],
     "reproducerState": {
       "age": -1,
-      "parentConsent": false,
-      "newsletter": false
+      "parentConsent": false
     },
     "fixGuidance": [
       "Provide value or adjust mapping"
