@@ -24,6 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure tsx and tsconfig-paths available
+        run: |
+          npx --yes tsx --version || true
+          node -e "require('tsconfig-paths/register')" || true
+
       - name: Discover TS sample configs
         id: discover
         run: |
