@@ -1,163 +1,17 @@
 [
   {
     "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.name\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
+    "title": "Placeholder API endpoint detected",
+    "explanation": "submitConfig.endpoint uses \"api.example.com\" which is a documentation placeholder, not a real API. Forms will fail to submit. This usually means the config was copied from a template and the endpoint wasn't updated. Replace with your actual API URL.",
     "jsonPaths": [
-      "user.name",
-      "payload.mapping"
+      "submitConfig.endpoint"
     ],
-    "reproducerState": {
-      "accountType": "business",
-      "companyName": "",
-      "newsletter": false
-    },
+    "reproducerState": {},
     "fixGuidance": [
-      "Add form field that maps to \"user.name\" or provide a default value",
-      "Add to payload transform: { \"user.name\": formValues.user.name || \"default\" }",
-      "If field is optional, update API schema to mark \"user.name\" as optional instead of required",
-      "Example valid payload: { \"user.name\": \"example-value\" }"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.email\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
-    "jsonPaths": [
-      "user.email",
-      "steps[].fields[name=email]"
-    ],
-    "reproducerState": {
-      "accountType": "business",
-      "companyName": "",
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add payload mapping: map form field \"email\" to \"user.email\"",
-      "Add to payload transform: { \"user.email\": formValues.email || \"default\" }",
-      "If field is optional, update API schema to mark \"user.email\" as optional instead of required",
-      "Example valid payload: { \"user.email\": \"example-value\" }"
-    ]
-  },
-  {
-    "severity": "warning",
-    "title": "Mutually exclusive conditions active together",
-    "explanation": "Fields \"subscribe\" and \"unsubscribe\" are both true, which represents a logical contradiction. The user cannot simultaneously subscribe and unsubscribe. This likely indicates missing validation rules or UI controls to enforce mutual exclusivity. Current state: subscribe=true, unsubscribe=true.",
-    "jsonPaths": [
-      "steps[].fields[name=subscribe]",
-      "steps[].fields[name=unsubscribe]"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add radio button group instead of two separate checkboxes to enforce single selection",
-      "Add validation rule: \"if subscribe is true, unsubscribe must be false (and vice versa)\"",
-      "Use enum field with values [\"subscribe\", \"unsubscribe\", \"no-change\"] instead of two boolean fields",
-      "Add cross-field validation: { \"rule\": \"mutuallyExclusive\", \"fields\": [\"subscribe\", \"unsubscribe\"] }"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.name\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
-    "jsonPaths": [
-      "user.name",
-      "payload.mapping"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add form field that maps to \"user.name\" or provide a default value",
-      "Add to payload transform: { \"user.name\": formValues.user.name || \"default\" }",
-      "If field is optional, update API schema to mark \"user.name\" as optional instead of required",
-      "Example valid payload: { \"user.name\": \"example-value\" }"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.email\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
-    "jsonPaths": [
-      "user.email",
-      "steps[].fields[name=email]"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add payload mapping: map form field \"email\" to \"user.email\"",
-      "Add to payload transform: { \"user.email\": formValues.email || \"default\" }",
-      "If field is optional, update API schema to mark \"user.email\" as optional instead of required",
-      "Example valid payload: { \"user.email\": \"example-value\" }"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Impossible value combination across fields",
-    "explanation": "Field \"age\" has value -1 (negative), which violates logical constraints (min: 18). Combined with \"parentConsent\"=false, this creates an impossible state. Negative ages are never valid, and the validation rules should prevent this. The form allows entering invalid data that cannot be processed.",
-    "jsonPaths": [
-      "steps[].fields[name=age].validation",
-      "steps[].fields[name=age]",
-      "steps[].fields[name=parentConsent]"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add validation rule to age field: { \"min\": 0, \"max\": 120, \"required\": true } to prevent negative values",
-      "Add client-side validation with error message: \"Age must be between 0 and 120\"",
-      "Example valid combination that passes: { \"age\": 25, \"parentConsent\": false } (adult, no consent needed)",
-      "Example valid combination for minor: { \"age\": 15, \"parentConsent\": true } (minor with consent)"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.name\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
-    "jsonPaths": [
-      "user.name",
-      "payload.mapping"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add form field that maps to \"user.name\" or provide a default value",
-      "Add to payload transform: { \"user.name\": formValues.user.name || \"default\" }",
-      "If field is optional, update API schema to mark \"user.name\" as optional instead of required",
-      "Example valid payload: { \"user.name\": \"example-value\" }"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "API expects required field \"user.email\" in payload, but current form state does not provide it. Expected type: unknown. Actual value: undefined. This will cause API validation errors. The payload mapping may be misconfigured or the form is missing a required field.",
-    "jsonPaths": [
-      "user.email",
-      "steps[].fields[name=email]"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false,
-      "newsletter": false
-    },
-    "fixGuidance": [
-      "Add payload mapping: map form field \"email\" to \"user.email\"",
-      "Add to payload transform: { \"user.email\": formValues.email || \"default\" }",
-      "If field is optional, update API schema to mark \"user.email\" as optional instead of required",
-      "Example valid payload: { \"user.email\": \"example-value\" }"
+      "Replace with your API: \"endpoint\": \"https://your-domain.com/api/endpoint\"",
+      "For testing, use free APIs: \"https://jsonplaceholder.typicode.com/posts\" or \"https://httpbin.org/post\"",
+      "Add environment variable: \"endpoint\": process.env.VITE_API_ENDPOINT",
+      "If intentional placeholder, add comment: // TODO: Replace with production API before deployment"
     ]
   }
 ]
