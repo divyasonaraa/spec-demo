@@ -61,39 +61,15 @@ jobs:
               echo "Analyzing TS sample: $sample"
               echo "============================================"
               BASENAME=$(basename "$sample" .ts)
-              OUTPUT="ci-results/${BASENAME}-results.json"
+              LOGFILE="ci-results/${BASENAME}.log"
               
-              # Run TS-aware debugger CLI, capture output
-              if node tools/debugger/cli/run-debugger-config.mjs "$sample" > "ci-results/${BASENAME}.log" 2>&1; then
+              # Run TS-aware debugger CLI, capture output only (no JSON sync)
+              if node tools/debugger/cli/run-debugger-config.mjs "$sample" > "$LOGFILE" 2>&1; then
                 echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
               else
                 echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
                 EXIT_CODE=1
               fi
-              
-              # Extract JSON findings by re-running with JSON output via temp file
-              node -e "const {default:run}=require('node:module').createRequire(process.cwd()+'/').resolve ? null : null" >/dev/null 2>&1 || true
-              # Generate JSON by parsing the TS module again and running engine in Node
-              node -e '
-                (async () => {
-                  const { readFile } = await import("fs/promises");
-                  const { execSync } = await import("child_process");
-                  const { join } = await import("path");
-                  const base = process.argv[1];
-                  const out = process.argv[2];
-                  const tsPath = base;
-                  const content = await readFile(tsPath, "utf8");
-                  const m = content.match(/export\s+const\s+(\w+):\s*FormConfig/);
-                  if (!m) process.exit(0);
-                  const name = m[1];
-                  const tmp = join(process.cwd(), ".temp-ci.mts");
-                  const src = `import { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
-                  await (await import("fs/promises")).writeFile(tmp, src, "utf8");
-                  const json = execSync(`npx tsx ${tmp}`, { encoding: "utf8" });
-                  await (await import("fs/promises")).writeFile(out, json, "utf8");
-                  try { execSync(`rm -f ${tmp}`) } catch {}
-                })();
-              ' "$sample" "$OUTPUT"
             fi
           done <<< "$SAMPLES"
           
@@ -106,150 +82,30 @@ jobs:
             exit 0
           fi
 
-      - name: Upload findings artifacts
+      - name: Upload artifacts (logs only)
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: debugger-results
+          name: debugger-logs
           path: |
-            ci-results/*.json
             ci-results/*.log
             ci-results/summary.txt
           if-no-files-found: ignore
 
-      - name: Generate formatted summary with detailed findings
+      - name: Generate summary (from logs)
         if: always()
         run: |
           echo "## 🔍 Spec Debugger Summary" > summary.md
           echo "" >> summary.md
-          echo "| Config | Errors | Warnings | Info | Status |" >> summary.md
-          echo "|--------|--------|----------|------|--------|" >> summary.md
-          
-          HAS_ERRORS=false
-          HAS_WARNINGS=false
-          HAS_INFO=false
-          
-          # Parse results from each config
-          for result in ci-results/*-results.json; do
-            if [ -f "$result" ]; then
-              BASENAME=$(basename "$result" -results.json)
-              ERRORS=$(jq '[.[] | select(.severity=="error")] | length' "$result" 2>/dev/null || echo "0")
-              WARNINGS=$(jq '[.[] | select(.severity=="warning")] | length' "$result" 2>/dev/null || echo "0")
-              INFO=$(jq '[.[] | select(.severity=="info")] | length' "$result" 2>/dev/null || echo "0")
-              
-              if [ "$ERRORS" -gt 0 ]; then
-                STATUS="❌ Failed"
-                HAS_ERRORS=true
-              elif [ "$WARNINGS" -gt 0 ]; then
-                STATUS="⚠️  Warnings"
-                HAS_WARNINGS=true
-              else
-                STATUS="✅ Passed"
-              fi
-              
-              [ "$INFO" -gt 0 ] && HAS_INFO=true
-              
-              echo "| \`$BASENAME\` | $ERRORS | $WARNINGS | $INFO | $STATUS |" >> summary.md
-            fi
-          done
-          
-          # If no results found, show message
-          if ! ls ci-results/*-results.json 1> /dev/null 2>&1; then
-            echo "| *(no configs found)* | - | - | - | - |" >> summary.md
-          fi
-          
+          echo "Logs and status for TypeScript samples:" >> summary.md
           echo "" >> summary.md
-          
-          # Show detailed findings for errors
-          if [ "$HAS_ERRORS" = true ]; then
-            echo "---" >> summary.md
-            echo "" >> summary.md
-            echo "## ❌ Errors Found (Must Fix)" >> summary.md
-            echo "" >> summary.md
-            
-            for result in ci-results/*-results.json; do
-              if [ -f "$result" ]; then
-                BASENAME=$(basename "$result" -results.json)
-                ERROR_COUNT=$(jq '[.[] | select(.severity=="error")] | length' "$result" 2>/dev/null || echo "0")
-                
-                if [ "$ERROR_COUNT" -gt 0 ]; then
-                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
-                  echo "" >> summary.md
-                  
-                  # Extract each error with details
-                  jq -r '.[] | select(.severity=="error") | 
-                    "**" + .title + "**\n\n" +
-                    "**Reason:** " + .explanation + "\n\n" +
-                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
-                    "**Fix:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
-                    "\n\n---\n"' "$result" >> summary.md
-                fi
-              fi
-            done
+          if [ -f ci-results/summary.txt ]; then
+            echo '```text' >> summary.md
+            cat ci-results/summary.txt >> summary.md
+            echo '```' >> summary.md
+          else
+            echo "(no samples analyzed)" >> summary.md
           fi
-          
-          # Show detailed findings for warnings
-          if [ "$HAS_WARNINGS" = true ]; then
-            echo "" >> summary.md
-            echo "## ⚠️  Warnings (Should Review)" >> summary.md
-            echo "" >> summary.md
-            
-            for result in ci-results/*-results.json; do
-              if [ -f "$result" ]; then
-                BASENAME=$(basename "$result" -results.json)
-                WARNING_COUNT=$(jq '[.[] | select(.severity=="warning")] | length' "$result" 2>/dev/null || echo "0")
-                
-                if [ "$WARNING_COUNT" -gt 0 ]; then
-                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
-                  echo "" >> summary.md
-                  
-                  jq -r '.[] | select(.severity=="warning") | 
-                    "**" + .title + "**\n\n" +
-                    "**Reason:** " + .explanation + "\n\n" +
-                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
-                    "**Fix:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
-                    "\n\n---\n"' "$result" >> summary.md
-                fi
-              fi
-            done
-          fi
-          
-          # Show detailed findings for info
-          if [ "$HAS_INFO" = true ]; then
-            echo "" >> summary.md
-            echo "<details>" >> summary.md
-            echo "<summary>💡 Info & Suggestions (Optional Improvements)</summary>" >> summary.md
-            echo "" >> summary.md
-            
-            for result in ci-results/*-results.json; do
-              if [ -f "$result" ]; then
-                BASENAME=$(basename "$result" -results.json)
-                INFO_COUNT=$(jq '[.[] | select(.severity=="info")] | length' "$result" 2>/dev/null || echo "0")
-                
-                if [ "$INFO_COUNT" -gt 0 ]; then
-                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
-                  echo "" >> summary.md
-                  
-                  jq -r '.[] | select(.severity=="info") | 
-                    "**" + .title + "**\n\n" +
-                    "**Reason:** " + .explanation + "\n\n" +
-                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
-                    "**Suggestions:**\n" + 
-                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
-                    "\n\n---\n"' "$result" >> summary.md
-                fi
-              fi
-            done
-            
-            echo "</details>" >> summary.md
-          fi
-          
-          echo "" >> summary.md
-          echo "---" >> summary.md
-          echo "" >> summary.md
-          echo "📦 **Download artifacts** for full JSON reports with reproducers" >> summary.md
         shell: bash
 
       - name: Comment summary
