@@ -259,11 +259,8 @@
         }
     ],
     "submitConfig": {
-        "endpoint": "https://api.example.com/onboarding",
-        "method": "POST",
-        "headers": {
-            "Content-Type": "application/json"
-        },
+        "endpoint": "https://api.mycompany.com/onboarding",
+        "method": "PUT",
         "stateTransitions": {
             "onSuccess": {
                 "action": "showMessage",

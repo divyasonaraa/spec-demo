@@ -15,18 +15,19 @@
     ]
   },
   {
-    "severity": "error",
-    "title": "Placeholder API endpoint detected",
-    "explanation": "submitConfig.endpoint uses \"api.example.com\" which is a documentation placeholder, not a real API. Forms will fail to submit. This usually means the config was copied from a template and the endpoint wasn't updated. Replace with your actual API URL.",
+    "severity": "warning",
+    "title": "Missing Content-Type header for data submission",
+    "explanation": "submitConfig uses method=\"PUT\" but doesn't specify Content-Type header. Most APIs expect \"Content-Type: application/json\" for JSON payloads. Without this, the API may reject the request or misinterpret the data format.",
     "jsonPaths": [
-      "submitConfig.endpoint"
+      "submitConfig.headers",
+      "submitConfig.method"
     ],
     "reproducerState": {},
     "fixGuidance": [
-      "Replace with your API: \"endpoint\": \"https://your-domain.com/api/endpoint\"",
-      "For testing, use free APIs: \"https://jsonplaceholder.typicode.com/posts\" or \"https://httpbin.org/post\"",
-      "Add environment variable: \"endpoint\": process.env.VITE_API_ENDPOINT",
-      "If intentional placeholder, add comment: // TODO: Replace with production API before deployment"
+      "Add headers: { \"Content-Type\": \"application/json\" }",
+      "For file uploads, use: { \"Content-Type\": \"multipart/form-data\" }",
+      "For form-encoded: { \"Content-Type\": \"application/x-www-form-urlencoded\" }",
+      "Check your API documentation for required Content-Type"
     ]
   }
 ]
