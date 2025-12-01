@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   run-debugger:
     runs-on: ubuntu-latest
@@ -16,31 +21,57 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run Debugger (basic-form)
-        id: dbg_basic
-        continue-on-error: true
+      - name: Discover all form configs
+        id: discover
         run: |
-          node tools/debugger/cli/run-debugger.mjs public/examples/basic-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
-
-      - name: Run Debugger (multi-step) if present
-        id: dbg_multi
-        continue-on-error: true
-        run: |
-          if [ -f public/examples/multi-step-form.json ]; then
-            node tools/debugger/cli/run-debugger.mjs public/examples/multi-step-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+          # Find all JSON files in public/examples/
+          CONFIGS=$(find public/examples -name "*.json" -type f | grep -v "debugger-results" || true)
+          if [ -z "$CONFIGS" ]; then
+            echo "No configs found"
+            echo "configs=" >> $GITHUB_OUTPUT
           else
-            echo "multi-step-form.json not found; skipping"
+            echo "Found configs: $CONFIGS"
+            echo "configs<<EOF" >> $GITHUB_OUTPUT
+            echo "$CONFIGS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run Debugger (conditional) if present
-        id: dbg_cond
+      - name: Run Debugger on all configs
+        id: run_all
         continue-on-error: true
         run: |
-          if [ -f public/examples/conditional-form.json ]; then
-            node tools/debugger/cli/run-debugger.mjs public/examples/conditional-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
-          else
-            echo "conditional-form.json not found; skipping"
+          mkdir -p ci-results
+          EXIT_CODE=0
+          CONFIGS="${{ steps.discover.outputs.configs }}"
+          
+          if [ -z "$CONFIGS" ]; then
+            echo "No configs to analyze"
+            exit 0
           fi
+          
+          echo "$CONFIGS" | while IFS= read -r config; do
+            if [ -n "$config" ]; then
+              echo "============================================"
+              echo "Analyzing: $config"
+              echo "============================================"
+              BASENAME=$(basename "$config" .json)
+              OUTPUT="ci-results/${BASENAME}-results.json"
+              
+              if node tools/debugger/cli/run-debugger.mjs "$config" tools/debugger/specs/invariants.json tools/debugger/specs/examples.json > "ci-results/${BASENAME}.log" 2>&1; then
+                echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
+              else
+                echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
+                EXIT_CODE=1
+              fi
+              
+              # Copy results with unique name
+              if [ -f "$(dirname "$config")/debugger-results.json" ]; then
+                cp "$(dirname "$config")/debugger-results.json" "$OUTPUT"
+              fi
+            fi
+          done
+          
+          exit $EXIT_CODE
 
       - name: Upload findings artifacts
         uses: actions/upload-artifact@v4
@@ -48,27 +79,64 @@ jobs:
         with:
           name: debugger-results
           path: |
-            public/examples/debugger-results.json
+            ci-results/*.json
+            ci-results/*.log
+            ci-results/summary.txt
           if-no-files-found: ignore
 
-      - name: Generate summary
+      - name: Generate formatted summary table
         if: always()
         run: |
           echo "## 🔍 Spec Debugger Summary" > summary.md
           echo "" >> summary.md
-          echo "Analyzed form configurations for common bugs:" >> summary.md
+          echo "Analyzed form configurations for common bug patterns:" >> summary.md
           echo "" >> summary.md
-          echo "| Config | Status |" >> summary.md
-          echo "|--------|--------|" >> summary.md
-          echo "| basic-form | ${{ steps.dbg_basic.outcome }} |" >> summary.md
-          echo "| multi-step | ${{ steps.dbg_multi.outcome }} |" >> summary.md
-          echo "| conditional | ${{ steps.dbg_cond.outcome }} |" >> summary.md
+          echo "| Config | Errors | Warnings | Info | Status |" >> summary.md
+          echo "|--------|--------|----------|------|--------|" >> summary.md
+          
+          # Parse results from each config
+          for result in ci-results/*-results.json; do
+            if [ -f "$result" ]; then
+              BASENAME=$(basename "$result" -results.json)
+              ERRORS=$(jq '[.[] | select(.severity=="error")] | length' "$result" 2>/dev/null || echo "0")
+              WARNINGS=$(jq '[.[] | select(.severity=="warning")] | length' "$result" 2>/dev/null || echo "0")
+              INFO=$(jq '[.[] | select(.severity=="info")] | length' "$result" 2>/dev/null || echo "0")
+              
+              if [ "$ERRORS" -gt 0 ]; then
+                STATUS="❌ Failed"
+              elif [ "$WARNINGS" -gt 0 ]; then
+                STATUS="⚠️  Warnings"
+              else
+                STATUS="✅ Passed"
+              fi
+              
+              echo "| $BASENAME | $ERRORS | $WARNINGS | $INFO | $STATUS |" >> summary.md
+            fi
+          done
+          
+          # If no results found, show message
+          if [ ! -f ci-results/*-results.json ]; then
+            echo "| *(no configs found)* | - | - | - | - |" >> summary.md
+          fi
+          
           echo "" >> summary.md
-          echo "**Legend:** ✅ success = no errors, ⚠️ failure = errors detected" >> summary.md
+          echo "### 📊 Analysis Details" >> summary.md
           echo "" >> summary.md
-          echo "📦 Download the **debugger-results** artifact for detailed findings with JSON paths, reproducer states, and fix guidance." >> summary.md
+          echo "**Bug Classes Detected:**" >> summary.md
+          echo "- 🚫 Required fields hidden by conditional visibility" >> summary.md
+          echo "- ⚖️ Mutually exclusive conditions active together" >> summary.md
+          echo "- 🔗 Impossible value combinations across fields" >> summary.md
+          echo "- 📋 Payload schema drift (type/required mismatches)" >> summary.md
+          echo "- 🔄 Breaking changes between config versions" >> summary.md
           echo "" >> summary.md
-          echo "💡 Review console logs in job output for step-by-step debugger reasoning." >> summary.md
+          echo "**Legend:**" >> summary.md
+          echo "- ✅ **Passed**: No errors detected (warnings/info OK)" >> summary.md
+          echo "- ⚠️ **Warnings**: Non-blocking issues found" >> summary.md
+          echo "- ❌ **Failed**: Blocking errors that need fixes" >> summary.md
+          echo "" >> summary.md
+          echo "📦 **Download artifacts:** Full reports with JSON paths, reproducer states, and fix guidance" >> summary.md
+          echo "" >> summary.md
+          echo "💡 **Review logs:** Check job output for detailed step-by-step analysis" >> summary.md
         shell: bash
 
       - name: Comment summary
