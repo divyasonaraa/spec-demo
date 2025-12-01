@@ -75,6 +75,12 @@ Debugger output includes actionable guidance: what to change, where to change it
 - Empty or partial configs (missing steps/fields) still produce meaningful info-level guidance
 - Offline or API schema unavailable: fall back to last-known contract snapshot and mark as warning
 
+## Clarifications
+
+### Session 2025-12-01
+
+- Q: For FR-004 (detect schema drift between form config→payload mapping and documented API schema), where does the "documented API schema" come from? → A: Infer schema from payload mapping examples in config with manual override file
+
 ## Requirements *(mandatory)*
 
 <!--
@@ -87,7 +93,7 @@ Debugger output includes actionable guidance: what to change, where to change it
 - **FR-001**: Detect hidden required fields via conditional visibility and report as error with JSON path and reproducer state.
 - **FR-002**: Detect mutually exclusive conditions that can both evaluate to true and report as warning with involved paths and reproducer state.
 - **FR-003**: Detect impossible value combinations across fields based on validation rules and dependencies; report error with example invalid and valid combinations.
-- **FR-004**: Detect schema drift between form config→payload mapping and documented API schema; report error with mismatches and example payload.
+- **FR-004**: Detect schema drift between form config→payload mapping and API schema (inferred from payload mapping examples with optional manual override file in `specs/<feature>/schemas/override.json`); report error with mismatches and example payload.
 - **FR-005**: Detect breaking changes between config versions; report impacted fields and rules with before/after examples.
 - **FR-006**: Classify findings into error, warning, and info with clear badges and grouping.
 - **FR-007**: Include human-readable explanations for each finding that describe cause and impact.
