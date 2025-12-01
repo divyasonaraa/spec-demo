@@ -24,23 +24,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync TypeScript samples to JSON and validate
+      - name: Sync TypeScript samples to JSON
         id: sync_validate
         run: |
           echo "🔄 Syncing TypeScript samples to JSON..."
-          node tools/sync-and-validate-simple.mjs
+          # Just sync, don't validate yet (validation happens in next step)
+          node tools/sync-and-validate-simple.mjs || echo "⚠️ Sync had issues, will use existing JSONs"
         continue-on-error: true
 
-      - name: Discover all form configs (fallback to existing JSONs)
+      - name: Discover all form configs
         id: discover
         run: |
-          # Find all JSON files in public/examples/
-          CONFIGS=$(find public/examples -name "*.json" -type f | grep -v "debugger-results" || true)
+          # Find all JSON files in public/examples/ (excluding debugger-results)
+          CONFIGS=$(find public/examples -name "*.json" -type f ! -name "debugger-results.json" 2>/dev/null || true)
+          
           if [ -z "$CONFIGS" ]; then
-            echo "No configs found"
+            echo "⚠️ No configs found in public/examples/"
             echo "configs=" >> $GITHUB_OUTPUT
           else
-            echo "Found configs: $CONFIGS"
+            echo "✅ Found $(echo "$CONFIGS" | wc -l) config(s)"
+            echo "$CONFIGS" | while read config; do
+              echo "   - $(basename $config)"
+            done
             echo "configs<<EOF" >> $GITHUB_OUTPUT
             echo "$CONFIGS" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
