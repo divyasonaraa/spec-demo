@@ -38,7 +38,6 @@ jobs:
 
       - name: Run Debugger on all configs
         id: run_all
-        continue-on-error: true
         run: |
           mkdir -p ci-results
           EXIT_CODE=0
@@ -49,7 +48,8 @@ jobs:
             exit 0
           fi
           
-          echo "$CONFIGS" | while IFS= read -r config; do
+          # Process each config and track failures
+          while IFS= read -r config; do
             if [ -n "$config" ]; then
               echo "============================================"
               echo "Analyzing: $config"
@@ -69,9 +69,16 @@ jobs:
                 cp "$(dirname "$config")/debugger-results.json" "$OUTPUT"
               fi
             fi
-          done
+          done <<< "$CONFIGS"
           
-          exit $EXIT_CODE
+          # Report overall status
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "❌ One or more configs failed with errors"
+            exit 1
+          else
+            echo "✅ All configs passed (no errors detected)"
+            exit 0
+          fi
 
       - name: Upload findings artifacts
         uses: actions/upload-artifact@v4
