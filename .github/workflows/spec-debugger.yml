@@ -20,19 +20,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Ensure tsconfig-paths installed
+      - name: Install dependencies (force dev)
+        # Force installing devDependencies in case any CI envs set production installs
+        env:
+          NPM_CONFIG_PRODUCTION: false
         run: |
-          npm install tsconfig-paths@^4.2.0 --no-save
-          node -e "console.log(require.resolve('tsconfig-paths'))"
+          npm ci
 
-      - name: Ensure tsx and tsconfig-paths available
+      - name: Debug Node env and module resolution
         run: |
+          echo "### Environment"
+          echo "NODE_ENV=${NODE_ENV:-not-set}"
+          echo "NPM_CONFIG_PRODUCTION=${NPM_CONFIG_PRODUCTION:-not-set}"
+          echo "### Node & npm versions"
+          node -e "console.log('node version', process.version)"
+          node -e "console.log('npm version', require('child_process').execSync('npm --version').toString().trim())"
+          echo "### node_modules listing (top-level)"
+          ls -la node_modules | sed -n '1,200p' || true
+          echo "### Try resolving tsconfig-paths"
+          node -e "try { console.log('tsconfig-paths resolved to', require.resolve('tsconfig-paths')); } catch(e) { console.error('resolve error:', e.message); process.exit(2) }"
+
+      - name: Ensure tsx and tsconfig-paths are available (verify)
+        run: |
+          # verify tsx (installed via devDependencies or via npx later)
           npx --yes tsx --version || true
-          node -e "require('tsconfig-paths/register')" || true
+          # verify local resolution of tsconfig-paths (fail if not resolvable)
+          node -e "try { console.log('tsconfig-paths ok:', require.resolve('tsconfig-paths')); } catch(e) { console.error('tsconfig-paths not resolvable:', e.message); process.exit(2) }"
 
       - name: Discover TS sample configs
         id: discover
@@ -44,8 +59,8 @@ jobs:
             echo "samples=" >> $GITHUB_OUTPUT
           else
             echo "✅ Found $(echo "$SAMPLES" | wc -l) sample(s)"
-            echo "$SAMPLES" | while read f; do
-              echo "   - $(basename $f)"
+            echo "$SAMPLES" | while read -r f; do
+              echo "   - $(basename "$f")"
             done
             echo "samples<<EOF" >> $GITHUB_OUTPUT
             echo "$SAMPLES" >> $GITHUB_OUTPUT
@@ -55,38 +70,55 @@ jobs:
       - name: Run Debugger on TS samples
         id: run_all
         run: |
+          set -euo pipefail
+
           mkdir -p ci-results
-          EXIT_CODE=0
+          : > ci-results/summary.txt
+
           SAMPLES="${{ steps.discover.outputs.samples }}"
-          
+
           if [ -z "$SAMPLES" ]; then
             echo "No samples to analyze"
             exit 0
           fi
-          
-          # Process each config and track failures
-          # Ensure summary file exists
-          : > ci-results/summary.txt
-          printf '%s\n' "$SAMPLES" | while IFS= read -r sample; do
-            if [ -n "$sample" ]; then
-              echo "============================================"
-              echo "Analyzing TS sample: $sample"
-              echo "============================================"
-              BASENAME=$(basename "$sample" .ts)
-              LOGFILE="ci-results/${BASENAME}.log"
-              
-              # Run TS-aware debugger CLI, capture output only (no JSON sync)
-              if node tools/debugger/cli/run-debugger-config.mjs "$sample" > "$LOGFILE" 2>&1; then
-                echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
-              else
-                echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
-                EXIT_CODE=1
-              fi
+
+          # Split samples into array by newline (preserves whitespace in filenames carefully)
+          IFS=$'\n' read -r -d '' -a SAMPLES_ARR <<<"${SAMPLES}"$'\0'
+
+          EXIT_CODE=0
+
+          for sample in "${SAMPLES_ARR[@]}"; do
+            # skip empty lines if any
+            if [ -z "$sample" ]; then
+              continue
+            fi
+
+            echo "============================================"
+            echo "Analyzing TS sample: $sample"
+            echo "============================================"
+
+            BASENAME=$(basename "$sample" .ts)
+            LOGFILE="ci-results/${BASENAME}.log"
+
+            # Run the TS-aware debugger CLI. Use npx to ensure tsx + tsconfig-paths are available
+            # and preload tsconfig-paths/register so `paths` in tsconfig work.
+            # We capture stdout/stderr into a per-sample log and check exit code explicitly.
+            if npx --yes --package tsx --package tsconfig-paths tsx -r tsconfig-paths/register tools/debugger/cli/run-debugger-config.mjs "$sample" > "$LOGFILE" 2>&1; then
+              echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
+            else
+              echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
+              EXIT_CODE=1
+              echo "---- last 200 lines of $LOGFILE ----"
+              tail -n 200 "$LOGFILE" || true
             fi
           done
-          
-          # Report overall status
-          if [ $EXIT_CODE -eq 1 ]; then
+
+          echo "============================================"
+          echo "Summary:"
+          cat ci-results/summary.txt || true
+          echo "============================================"
+
+          if [ "$EXIT_CODE" -eq 1 ]; then
             echo "❌ One or more configs failed with errors"
             exit 1
           else
