@@ -50,10 +50,22 @@
                     }
                 },
                 {
+                    "name": "email",
+                    "label": "Email Address",
+                    "type": "email",
+                    "placeholder": "you@example.com",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Email is required",
+                        "email": true,
+                        "emailMessage": "Please enter a valid email address"
+                    }
+                },
+                {
                     "name": "companyName",
                     "label": "Company Name",
                     "type": "text",
-                    "placeholder": "Enter company name",
+                    "placeholder": "Enter your company name",
                     "showIf": {
                         "field": "accountType",
                         "operator": "equals",
@@ -62,30 +74,103 @@
                     "validation": {
                         "required": true,
                         "requiredMessage": "Company name is required for business accounts",
-                        "minLength": 2
+                        "minLength": 2,
+                        "minLengthMessage": "Company name must be at least 2 characters"
                     }
                 },
                 {
                     "name": "taxId",
-                    "label": "Tax ID",
+                    "label": "Tax ID / EIN",
                     "type": "text",
-                    "placeholder": "XX-1234567",
+                    "placeholder": "XX-XXXXXXX",
+                    "helpText": "Your business tax identification number",
                     "showIf": {
                         "field": "accountType",
                         "operator": "equals",
                         "value": "business"
                     },
                     "validation": {
+                        "pattern": "^\\d{2}-\\d{7}$",
+                        "patternMessage": "Tax ID must be in format XX-XXXXXXX"
+                    }
+                },
+                {
+                    "name": "country",
+                    "label": "Country",
+                    "type": "select",
+                    "placeholder": "Select your country",
+                    "dataSource": {
+                        "endpoint": "https://restcountries.com/v3.1/all",
+                        "method": "GET",
+                        "from": "",
+                        "to": {
+                            "label": "name.common",
+                            "value": "cca2"
+                        },
+                        "cache": {
+                            "enabled": true,
+                            "ttl": 3600
+                        }
+                    },
+                    "validation": {
                         "required": true,
-                        "pattern": "^[A-Z]{2}-\\d{7}$",
-                        "patternMessage": "Format must be XX-0000000"
+                        "requiredMessage": "Please select your country"
+                    }
+                },
+                {
+                    "name": "region",
+                    "label": "Region",
+                    "type": "select",
+                    "placeholder": "Select a region",
+                    "dependency": {
+                        "parent": "country",
+                        "resetOnChange": true,
+                        "disableUntilParent": false
+                    },
+                    "props": {
+                        "options": [
+                            {
+                                "value": "americas",
+                                "label": "Americas"
+                            },
+                            {
+                                "value": "europe",
+                                "label": "Europe"
+                            },
+                            {
+                                "value": "asia",
+                                "label": "Asia"
+                            },
+                            {
+                                "value": "africa",
+                                "label": "Africa"
+                            },
+                            {
+                                "value": "oceania",
+                                "label": "Oceania"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select a region"
+                    }
+                },
+                {
+                    "name": "city",
+                    "label": "City",
+                    "type": "text",
+                    "placeholder": "Enter your city",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "City is required"
                     }
                 },
                 {
                     "name": "industry",
                     "label": "Industry",
                     "type": "select",
-                    "placeholder": "Select industry",
+                    "placeholder": "Select your industry",
                     "showIf": {
                         "field": "accountType",
                         "operator": "equals",
@@ -98,16 +183,16 @@
                                 "label": "Technology"
                             },
                             {
-                                "value": "finance",
-                                "label": "Finance"
+                                "value": "retail",
+                                "label": "Retail"
                             },
                             {
                                 "value": "healthcare",
                                 "label": "Healthcare"
                             },
                             {
-                                "value": "retail",
-                                "label": "Retail"
+                                "value": "finance",
+                                "label": "Finance"
                             },
                             {
                                 "value": "manufacturing",
@@ -125,76 +210,55 @@
                     }
                 },
                 {
-                    "name": "email",
-                    "label": "Email Address",
-                    "type": "text",
-                    "placeholder": "you@example.com",
-                    "validation": {
-                        "required": true,
-                        "email": true,
-                        "requiredMessage": "Email is required"
-                    }
-                },
-                {
-                    "name": "country",
-                    "label": "Country",
+                    "name": "employeeCount",
+                    "label": "Number of Employees",
                     "type": "select",
-                    "placeholder": "Select your country",
-                    "props": {
-                        "options": [
-                            {
-                                "value": "US",
-                                "label": "United States"
-                            },
-                            {
-                                "value": "CA",
-                                "label": "Canada"
-                            },
-                            {
-                                "value": "UK",
-                                "label": "United Kingdom"
-                            },
-                            {
-                                "value": "AU",
-                                "label": "Australia"
-                            }
-                        ]
-                    },
-                    "validation": {
-                        "required": true,
-                        "requiredMessage": "Please select your country"
-                    }
-                },
-                {
-                    "name": "state",
-                    "label": "State/Province",
-                    "type": "select",
-                    "placeholder": "Select state",
-                    "dependency": {
-                        "parent": "country",
-                        "resetOnChange": true,
-                        "disableUntilParent": true
+                    "placeholder": "Select employee range",
+                    "showIf": {
+                        "field": "accountType",
+                        "operator": "equals",
+                        "value": "business"
                     },
                     "props": {
                         "options": [
                             {
-                                "value": "NY",
-                                "label": "New York"
+                                "value": "1-10",
+                                "label": "1-10 employees"
                             },
                             {
-                                "value": "CA",
-                                "label": "California"
+                                "value": "11-50",
+                                "label": "11-50 employees"
                             },
                             {
-                                "value": "TX",
-                                "label": "Texas"
+                                "value": "51-200",
+                                "label": "51-200 employees"
+                            },
+                            {
+                                "value": "201-500",
+                                "label": "201-500 employees"
+                            },
+                            {
+                                "value": "500+",
+                                "label": "500+ employees"
                             }
                         ]
-                    },
+                    }
+                },
+                {
+                    "name": "agreeToTerms",
+                    "label": "I agree to the Terms of Service and Privacy Policy",
+                    "type": "checkbox",
+                    "defaultValue": false,
                     "validation": {
                         "required": true,
-                        "requiredMessage": "Please select your state"
+                        "requiredMessage": "You must agree to the terms to continue"
                     }
+                },
+                {
+                    "name": "newsletter",
+                    "label": "Subscribe to our newsletter for updates and tips",
+                    "type": "checkbox",
+                    "defaultValue": false
                 }
             ]
         }
@@ -208,12 +272,12 @@
         "stateTransitions": {
             "onSuccess": {
                 "action": "showMessage",
-                "message": "Account created successfully!",
+                "message": "Account created successfully! Welcome aboard.",
                 "target": "/dashboard"
             },
             "onError": {
                 "action": "showMessage",
-                "message": "Registration failed. Please try again."
+                "message": "Registration failed. Please check your information and try again."
             }
         }
     }

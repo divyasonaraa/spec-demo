@@ -259,8 +259,16 @@
         }
     ],
     "submitConfig": {
+<<<<<<< HEAD
         "endpoint": "https://api.mycompany.com/onboarding",
         "method": "PUT",
+=======
+        "endpoint": "https://jsonplaceholder.typicode.com/posts",
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+>>>>>>> a937ab7... feat: automate config sync and validation
         "stateTransitions": {
             "onSuccess": {
                 "action": "showMessage",
