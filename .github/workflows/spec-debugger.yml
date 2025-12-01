@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   run-debugger:
     runs-on: ubuntu-latest
@@ -16,30 +21,63 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run Debugger (basic-form)
-        id: dbg_basic
-        continue-on-error: true
+      - name: Discover all form configs
+        id: discover
         run: |
-          node tools/debugger/cli/run-debugger.mjs public/examples/basic-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
-
-      - name: Run Debugger (multi-step) if present
-        id: dbg_multi
-        continue-on-error: true
-        run: |
-          if [ -f public/examples/multi-step-form.json ]; then
-            node tools/debugger/cli/run-debugger.mjs public/examples/multi-step-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+          # Find all JSON files in public/examples/
+          CONFIGS=$(find public/examples -name "*.json" -type f | grep -v "debugger-results" || true)
+          if [ -z "$CONFIGS" ]; then
+            echo "No configs found"
+            echo "configs=" >> $GITHUB_OUTPUT
           else
-            echo "multi-step-form.json not found; skipping"
+            echo "Found configs: $CONFIGS"
+            echo "configs<<EOF" >> $GITHUB_OUTPUT
+            echo "$CONFIGS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run Debugger (conditional) if present
-        id: dbg_cond
-        continue-on-error: true
+      - name: Run Debugger on all configs
+        id: run_all
         run: |
-          if [ -f public/examples/conditional-form.json ]; then
-            node tools/debugger/cli/run-debugger.mjs public/examples/conditional-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+          mkdir -p ci-results
+          EXIT_CODE=0
+          CONFIGS="${{ steps.discover.outputs.configs }}"
+          
+          if [ -z "$CONFIGS" ]; then
+            echo "No configs to analyze"
+            exit 0
+          fi
+          
+          # Process each config and track failures
+          while IFS= read -r config; do
+            if [ -n "$config" ]; then
+              echo "============================================"
+              echo "Analyzing: $config"
+              echo "============================================"
+              BASENAME=$(basename "$config" .json)
+              OUTPUT="ci-results/${BASENAME}-results.json"
+              
+              if node tools/debugger/cli/run-debugger.mjs "$config" tools/debugger/specs/invariants.json tools/debugger/specs/examples.json > "ci-results/${BASENAME}.log" 2>&1; then
+                echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
+              else
+                echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
+                EXIT_CODE=1
+              fi
+              
+              # Copy results with unique name
+              if [ -f "$(dirname "$config")/debugger-results.json" ]; then
+                cp "$(dirname "$config")/debugger-results.json" "$OUTPUT"
+              fi
+            fi
+          done <<< "$CONFIGS"
+          
+          # Report overall status
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "❌ One or more configs failed with errors"
+            exit 1
           else
-            echo "conditional-form.json not found; skipping"
+            echo "✅ All configs passed (no errors detected)"
+            exit 0
           fi
 
       - name: Upload findings artifacts
@@ -48,27 +86,144 @@ jobs:
         with:
           name: debugger-results
           path: |
-            public/examples/debugger-results.json
+            ci-results/*.json
+            ci-results/*.log
+            ci-results/summary.txt
           if-no-files-found: ignore
 
-      - name: Generate summary
+      - name: Generate formatted summary with detailed findings
         if: always()
         run: |
           echo "## 🔍 Spec Debugger Summary" > summary.md
           echo "" >> summary.md
-          echo "Analyzed form configurations for common bugs:" >> summary.md
+          echo "| Config | Errors | Warnings | Info | Status |" >> summary.md
+          echo "|--------|--------|----------|------|--------|" >> summary.md
+          
+          HAS_ERRORS=false
+          HAS_WARNINGS=false
+          HAS_INFO=false
+          
+          # Parse results from each config
+          for result in ci-results/*-results.json; do
+            if [ -f "$result" ]; then
+              BASENAME=$(basename "$result" -results.json)
+              ERRORS=$(jq '[.[] | select(.severity=="error")] | length' "$result" 2>/dev/null || echo "0")
+              WARNINGS=$(jq '[.[] | select(.severity=="warning")] | length' "$result" 2>/dev/null || echo "0")
+              INFO=$(jq '[.[] | select(.severity=="info")] | length' "$result" 2>/dev/null || echo "0")
+              
+              if [ "$ERRORS" -gt 0 ]; then
+                STATUS="❌ Failed"
+                HAS_ERRORS=true
+              elif [ "$WARNINGS" -gt 0 ]; then
+                STATUS="⚠️  Warnings"
+                HAS_WARNINGS=true
+              else
+                STATUS="✅ Passed"
+              fi
+              
+              [ "$INFO" -gt 0 ] && HAS_INFO=true
+              
+              echo "| \`$BASENAME\` | $ERRORS | $WARNINGS | $INFO | $STATUS |" >> summary.md
+            fi
+          done
+          
+          # If no results found, show message
+          if ! ls ci-results/*-results.json 1> /dev/null 2>&1; then
+            echo "| *(no configs found)* | - | - | - | - |" >> summary.md
+          fi
+          
           echo "" >> summary.md
-          echo "| Config | Status |" >> summary.md
-          echo "|--------|--------|" >> summary.md
-          echo "| basic-form | ${{ steps.dbg_basic.outcome }} |" >> summary.md
-          echo "| multi-step | ${{ steps.dbg_multi.outcome }} |" >> summary.md
-          echo "| conditional | ${{ steps.dbg_cond.outcome }} |" >> summary.md
+          
+          # Show detailed findings for errors
+          if [ "$HAS_ERRORS" = true ]; then
+            echo "---" >> summary.md
+            echo "" >> summary.md
+            echo "## ❌ Errors Found (Must Fix)" >> summary.md
+            echo "" >> summary.md
+            
+            for result in ci-results/*-results.json; do
+              if [ -f "$result" ]; then
+                BASENAME=$(basename "$result" -results.json)
+                ERROR_COUNT=$(jq '[.[] | select(.severity=="error")] | length' "$result" 2>/dev/null || echo "0")
+                
+                if [ "$ERROR_COUNT" -gt 0 ]; then
+                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
+                  echo "" >> summary.md
+                  
+                  # Extract each error with details
+                  jq -r '.[] | select(.severity=="error") | 
+                    "**" + .title + "**\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
+                    "**Fix:**\n" + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
+                    "\n\n---\n"' "$result" >> summary.md
+                fi
+              fi
+            done
+          fi
+          
+          # Show detailed findings for warnings
+          if [ "$HAS_WARNINGS" = true ]; then
+            echo "" >> summary.md
+            echo "## ⚠️  Warnings (Should Review)" >> summary.md
+            echo "" >> summary.md
+            
+            for result in ci-results/*-results.json; do
+              if [ -f "$result" ]; then
+                BASENAME=$(basename "$result" -results.json)
+                WARNING_COUNT=$(jq '[.[] | select(.severity=="warning")] | length' "$result" 2>/dev/null || echo "0")
+                
+                if [ "$WARNING_COUNT" -gt 0 ]; then
+                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
+                  echo "" >> summary.md
+                  
+                  jq -r '.[] | select(.severity=="warning") | 
+                    "**" + .title + "**\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
+                    "**Fix:**\n" + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
+                    "\n\n---\n"' "$result" >> summary.md
+                fi
+              fi
+            done
+          fi
+          
+          # Show detailed findings for info
+          if [ "$HAS_INFO" = true ]; then
+            echo "" >> summary.md
+            echo "<details>" >> summary.md
+            echo "<summary>💡 Info & Suggestions (Optional Improvements)</summary>" >> summary.md
+            echo "" >> summary.md
+            
+            for result in ci-results/*-results.json; do
+              if [ -f "$result" ]; then
+                BASENAME=$(basename "$result" -results.json)
+                INFO_COUNT=$(jq '[.[] | select(.severity=="info")] | length' "$result" 2>/dev/null || echo "0")
+                
+                if [ "$INFO_COUNT" -gt 0 ]; then
+                  echo "### 📄 \`$BASENAME.json\`" >> summary.md
+                  echo "" >> summary.md
+                  
+                  jq -r '.[] | select(.severity=="info") | 
+                    "**" + .title + "**\n\n" +
+                    "**Reason:** " + .explanation + "\n\n" +
+                    "**Location:** `" + (.jsonPaths | join(", ")) + "`\n\n" +
+                    "**Suggestions:**\n" + 
+                    (.fixGuidance | to_entries | map("  " + ((.key | tonumber) + 1 | tostring) + ". " + .value) | join("\n")) + 
+                    "\n\n---\n"' "$result" >> summary.md
+                fi
+              fi
+            done
+            
+            echo "</details>" >> summary.md
+          fi
+          
           echo "" >> summary.md
-          echo "**Legend:** ✅ success = no errors, ⚠️ failure = errors detected" >> summary.md
+          echo "---" >> summary.md
           echo "" >> summary.md
-          echo "📦 Download the **debugger-results** artifact for detailed findings with JSON paths, reproducer states, and fix guidance." >> summary.md
-          echo "" >> summary.md
-          echo "💡 Review console logs in job output for step-by-step debugger reasoning." >> summary.md
+          echo "📦 **Download artifacts** for full JSON reports with reproducers" >> summary.md
         shell: bash
 
       - name: Comment summary

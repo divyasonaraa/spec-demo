@@ -1,227 +1,33 @@
 [
   {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.name is missing or empty",
+    "severity": "warning",
+    "title": "Number field \"phone\" has pattern validation",
+    "explanation": "Field \"phone\" has type=\"number\" but validation.pattern=\"^\\+?[1-9]\\d{1,14}$\". Pattern validation only works on strings. For number fields, use min/max/step instead. Current pattern will be ignored by browsers.",
     "jsonPaths": [
-      "user.name"
+      "steps[id=contact-details].fields[name=phone].type",
+      "steps[id=contact-details].fields[name=phone].validation.pattern"
     ],
-    "reproducerState": {
-      "accountType": "business",
-      "companyName": ""
-    },
+    "reproducerState": {},
     "fixGuidance": [
-      "Provide value or adjust mapping"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.email is missing or empty",
-    "jsonPaths": [
-      "user.email"
-    ],
-    "reproducerState": {
-      "accountType": "business",
-      "companyName": ""
-    },
-    "fixGuidance": [
-      "Provide value or adjust mapping"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"companyName\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=companyName]",
-      "steps[].fields[name=companyName].showIf"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"taxId\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=taxId]",
-      "steps[].fields[name=taxId].showIf"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"industry\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=industry]",
-      "steps[].fields[name=industry].showIf"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
+      "Remove pattern and use min/max: { \"min\": 0, \"max\": 999, \"step\": 1 }",
+      "If you need pattern (e.g., \"must be 3 digits\"), change type to \"text\" or \"tel\"",
+      "For formatted numbers (e.g., phone), use type=\"tel\" with pattern instead of type=\"number\""
     ]
   },
   {
     "severity": "warning",
-    "title": "Mutually exclusive conditions active together",
-    "explanation": "subscribe and unsubscribe both true, which is mutually exclusive",
+    "title": "Missing Content-Type header for data submission",
+    "explanation": "submitConfig uses method=\"PUT\" but doesn't specify Content-Type header. Most APIs expect \"Content-Type: application/json\" for JSON payloads. Without this, the API may reject the request or misinterpret the data format.",
     "jsonPaths": [
-      "values.subscribe",
-      "values.unsubscribe"
+      "submitConfig.headers",
+      "submitConfig.method"
     ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
+    "reproducerState": {},
     "fixGuidance": [
-      "Ensure only one of subscribe/unsubscribe can be true"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.name is missing or empty",
-    "jsonPaths": [
-      "user.name"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
-    "fixGuidance": [
-      "Provide value or adjust mapping"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.email is missing or empty",
-    "jsonPaths": [
-      "user.email"
-    ],
-    "reproducerState": {
-      "subscribe": true,
-      "unsubscribe": true
-    },
-    "fixGuidance": [
-      "Provide value or adjust mapping"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"companyName\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=companyName]",
-      "steps[].fields[name=companyName].showIf"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"taxId\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=taxId]",
-      "steps[].fields[name=taxId].showIf"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Required field hidden by conditional visibility",
-    "explanation": "Field \"industry\" is required but hidden due to showIf",
-    "jsonPaths": [
-      "steps[].fields[name=industry]",
-      "steps[].fields[name=industry].showIf"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Relax showIf or remove required on this field",
-      "Ensure required fields are always visible or have defaults"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Impossible value combination across fields",
-    "explanation": "Negative age without parent consent is an impossible state",
-    "jsonPaths": [
-      "values.age",
-      "values.parentConsent"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Validate age >= 0",
-      "Adjust consent logic for minors"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.name is missing or empty",
-    "jsonPaths": [
-      "user.name"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Provide value or adjust mapping"
-    ]
-  },
-  {
-    "severity": "error",
-    "title": "Payload schema required field missing",
-    "explanation": "Required payload field user.email is missing or empty",
-    "jsonPaths": [
-      "user.email"
-    ],
-    "reproducerState": {
-      "age": -1,
-      "parentConsent": false
-    },
-    "fixGuidance": [
-      "Provide value or adjust mapping"
+      "Add headers: { \"Content-Type\": \"application/json\" }",
+      "For file uploads, use: { \"Content-Type\": \"multipart/form-data\" }",
+      "For form-encoded: { \"Content-Type\": \"application/x-www-form-urlencoded\" }",
+      "Check your API documentation for required Content-Type"
     ]
   }
 ]

@@ -127,7 +127,7 @@
                 {
                     "name": "email",
                     "label": "Email Address",
-                    "type": "email",
+                    "type": "text",
                     "placeholder": "you@example.com",
                     "validation": {
                         "required": true,
@@ -200,7 +200,7 @@
         }
     ],
     "submitConfig": {
-        "endpoint": "https://api.example.com/register",
+        "endpoint": "https://jsonplaceholder.typicode.com/posts",
         "method": "POST",
         "headers": {
             "Content-Type": "application/json"
