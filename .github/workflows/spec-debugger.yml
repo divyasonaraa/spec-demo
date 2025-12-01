@@ -84,30 +84,10 @@ jobs:
             exit 0
           fi
 
-      - name: Upload artifacts (logs only)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: debugger-logs
-          path: |
-            ci-results/*.log
-            ci-results/summary.txt
-          if-no-files-found: ignore
-
-      - name: Generate summary (from logs)
+      - name: Generate detailed summary (direct TS)
         if: always()
         run: |
-          echo "## 🔍 Spec Debugger Summary" > summary.md
-          echo "" >> summary.md
-          echo "Logs and status for TypeScript samples:" >> summary.md
-          echo "" >> summary.md
-          if [ -f ci-results/summary.txt ]; then
-            echo '```text' >> summary.md
-            cat ci-results/summary.txt >> summary.md
-            echo '```' >> summary.md
-          else
-            echo "(no samples analyzed)" >> summary.md
-          fi
+          node tools/debugger/ci/generate-summary.mjs
         shell: bash
 
       - name: Comment summary
