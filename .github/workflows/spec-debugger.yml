@@ -1,0 +1,79 @@
+name: Spec Debugger
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  run-debugger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Debugger (basic-form)
+        id: dbg_basic
+        continue-on-error: true
+        run: |
+          node tools/debugger/cli/run-debugger.mjs public/examples/basic-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+
+      - name: Run Debugger (multi-step) if present
+        id: dbg_multi
+        continue-on-error: true
+        run: |
+          if [ -f public/examples/multi-step-form.json ]; then
+            node tools/debugger/cli/run-debugger.mjs public/examples/multi-step-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+          else
+            echo "multi-step-form.json not found; skipping"
+          fi
+
+      - name: Run Debugger (conditional) if present
+        id: dbg_cond
+        continue-on-error: true
+        run: |
+          if [ -f public/examples/conditional-form.json ]; then
+            node tools/debugger/cli/run-debugger.mjs public/examples/conditional-form.json tools/debugger/specs/invariants.json tools/debugger/specs/examples.json
+          else
+            echo "conditional-form.json not found; skipping"
+          fi
+
+      - name: Upload findings artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: debugger-results
+          path: |
+            public/examples/debugger-results.json
+          if-no-files-found: ignore
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 🔍 Spec Debugger Summary" > summary.md
+          echo "" >> summary.md
+          echo "Analyzed form configurations for common bugs:" >> summary.md
+          echo "" >> summary.md
+          echo "| Config | Status |" >> summary.md
+          echo "|--------|--------|" >> summary.md
+          echo "| basic-form | ${{ steps.dbg_basic.outcome }} |" >> summary.md
+          echo "| multi-step | ${{ steps.dbg_multi.outcome }} |" >> summary.md
+          echo "| conditional | ${{ steps.dbg_cond.outcome }} |" >> summary.md
+          echo "" >> summary.md
+          echo "**Legend:** ✅ success = no errors, ⚠️ failure = errors detected" >> summary.md
+          echo "" >> summary.md
+          echo "📦 Download the **debugger-results** artifact for detailed findings with JSON paths, reproducer states, and fix guidance." >> summary.md
+          echo "" >> summary.md
+          echo "💡 Review console logs in job output for step-by-step debugger reasoning." >> summary.md
+        shell: bash
+
+      - name: Comment summary
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: summary.md

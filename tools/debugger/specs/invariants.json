@@ -1,0 +1,39 @@
+{
+    "versioning": {
+        "currentVersion": "1.0.0",
+        "breakingRules": [
+            {
+                "path": "metadata.version",
+                "note": "Changing defaults in validation is a breaking change"
+            }
+        ]
+    },
+    "payloadSchema": {
+        "required": [
+            "user.name",
+            "user.email"
+        ],
+        "types": {
+            "user.age": "number",
+            "preferences.newsletter": "boolean"
+        }
+    },
+    "crossField": [
+        {
+            "title": "Email required when newsletter subscribed",
+            "paths": [
+                "preferences.newsletter",
+                "user.email"
+            ],
+            "rule": "if preferences.newsletter === true then user.email must be non-empty"
+        },
+        {
+            "title": "Business account requires companyName",
+            "paths": [
+                "accountType",
+                "companyName"
+            ],
+            "rule": "if accountType === 'business' then companyName must be non-empty"
+        }
+    ]
+}

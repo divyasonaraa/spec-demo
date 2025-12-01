@@ -1,0 +1,279 @@
+{
+    "id": "multi-step-onboarding",
+    "metadata": {
+        "title": "User Onboarding",
+        "description": "Complete the registration process in 3 easy steps",
+        "version": "1.0.0",
+        "tags": [
+            "onboarding",
+            "registration",
+            "multi-step"
+        ]
+    },
+    "steps": [
+        {
+            "id": "personal-info",
+            "title": "Personal Information",
+            "description": "Tell us about yourself",
+            "fields": [
+                {
+                    "name": "firstName",
+                    "label": "First Name",
+                    "type": "text",
+                    "placeholder": "Enter your first name",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "First name is required",
+                        "minLength": 2,
+                        "minLengthMessage": "First name must be at least 2 characters"
+                    }
+                },
+                {
+                    "name": "lastName",
+                    "label": "Last Name",
+                    "type": "text",
+                    "placeholder": "Enter your last name",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Last name is required",
+                        "minLength": 2,
+                        "minLengthMessage": "Last name must be at least 2 characters"
+                    }
+                },
+                {
+                    "name": "dateOfBirth",
+                    "label": "Date of Birth",
+                    "type": "text",
+                    "placeholder": "YYYY-MM-DD",
+                    "helpText": "Format: YYYY-MM-DD (e.g., 1990-01-15)",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Date of birth is required",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "patternMessage": "Please enter date in YYYY-MM-DD format"
+                    }
+                },
+                {
+                    "name": "gender",
+                    "label": "Gender",
+                    "type": "radio",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "male",
+                                "label": "Male"
+                            },
+                            {
+                                "value": "female",
+                                "label": "Female"
+                            },
+                            {
+                                "value": "other",
+                                "label": "Other"
+                            },
+                            {
+                                "value": "prefer-not-to-say",
+                                "label": "Prefer not to say"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select your gender"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "contact-details",
+            "title": "Contact Details",
+            "description": "How can we reach you?",
+            "fields": [
+                {
+                    "name": "email",
+                    "label": "Email Address",
+                    "type": "email",
+                    "placeholder": "you@example.com",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Email is required",
+                        "email": true,
+                        "emailMessage": "Please enter a valid email address"
+                    }
+                },
+                {
+                    "name": "phone",
+                    "label": "Phone Number",
+                    "type": "tel",
+                    "placeholder": "+1 (555) 123-4567",
+                    "helpText": "Include country code",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Phone number is required",
+                        "pattern": "^\\+?[1-9]\\d{1,14}$",
+                        "patternMessage": "Please enter a valid phone number"
+                    }
+                },
+                {
+                    "name": "address",
+                    "label": "Address",
+                    "type": "textarea",
+                    "placeholder": "Street address, city, state, ZIP code",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Address is required",
+                        "minLength": 10,
+                        "minLengthMessage": "Address must be at least 10 characters"
+                    }
+                },
+                {
+                    "name": "country",
+                    "label": "Country",
+                    "type": "select",
+                    "placeholder": "Select your country",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "us",
+                                "label": "United States"
+                            },
+                            {
+                                "value": "ca",
+                                "label": "Canada"
+                            },
+                            {
+                                "value": "gb",
+                                "label": "United Kingdom"
+                            },
+                            {
+                                "value": "au",
+                                "label": "Australia"
+                            },
+                            {
+                                "value": "de",
+                                "label": "Germany"
+                            },
+                            {
+                                "value": "fr",
+                                "label": "France"
+                            },
+                            {
+                                "value": "jp",
+                                "label": "Japan"
+                            },
+                            {
+                                "value": "in",
+                                "label": "India"
+                            }
+                        ]
+                    },
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select your country"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "preferences",
+            "title": "Preferences",
+            "description": "Customize your experience",
+            "fields": [
+                {
+                    "name": "newsletter",
+                    "label": "Subscribe to newsletter",
+                    "type": "checkbox",
+                    "defaultValue": false,
+                    "helpText": "Get updates about new features and promotions"
+                },
+                {
+                    "name": "notifications",
+                    "label": "Email Notifications",
+                    "type": "select",
+                    "placeholder": "Select notification preference",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "all",
+                                "label": "All notifications"
+                            },
+                            {
+                                "value": "important",
+                                "label": "Important only"
+                            },
+                            {
+                                "value": "none",
+                                "label": "None"
+                            }
+                        ]
+                    },
+                    "defaultValue": "important",
+                    "validation": {
+                        "required": true,
+                        "requiredMessage": "Please select a notification preference"
+                    }
+                },
+                {
+                    "name": "interests",
+                    "label": "Areas of Interest",
+                    "type": "select",
+                    "placeholder": "Select all that apply",
+                    "props": {
+                        "options": [
+                            {
+                                "value": "tech",
+                                "label": "Technology"
+                            },
+                            {
+                                "value": "business",
+                                "label": "Business"
+                            },
+                            {
+                                "value": "design",
+                                "label": "Design"
+                            },
+                            {
+                                "value": "marketing",
+                                "label": "Marketing"
+                            },
+                            {
+                                "value": "finance",
+                                "label": "Finance"
+                            }
+                        ]
+                    },
+                    "helpText": "Hold Ctrl/Cmd to select multiple"
+                },
+                {
+                    "name": "bio",
+                    "label": "Short Bio",
+                    "type": "textarea",
+                    "placeholder": "Tell us a bit about yourself...",
+                    "helpText": "Optional - share your background and interests",
+                    "validation": {
+                        "maxLength": 500,
+                        "maxLengthMessage": "Bio cannot exceed 500 characters"
+                    }
+                }
+            ]
+        }
+    ],
+    "submitConfig": {
+        "endpoint": "https://api.example.com/onboarding",
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "stateTransitions": {
+            "onSuccess": {
+                "action": "showMessage",
+                "message": "Registration completed successfully! Welcome aboard.",
+                "target": "/dashboard"
+            },
+            "onError": {
+                "action": "showMessage",
+                "message": "Registration failed. Please check your information and try again."
+            }
+        }
+    }
+}
