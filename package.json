@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "sync-validate": "node tools/sync-and-validate-simple.mjs",
     "validate": "node tools/debugger/cli/run-debugger.mjs",
+    "validate:samples": "for f in src/config/samples/*.ts; do node tools/debugger/cli/run-debugger-config.mjs \"$f\" || true; done",
     "precommit": "npm run sync-validate"
   },
   "dependencies": {

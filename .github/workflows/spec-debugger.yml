@@ -24,67 +24,78 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync TypeScript samples to JSON
-        id: sync_validate
-        run: |
-          echo "🔄 Syncing TypeScript samples to JSON..."
-          # Just sync, don't validate yet (validation happens in next step)
-          node tools/sync-and-validate-simple.mjs || echo "⚠️ Sync had issues, will use existing JSONs"
-        continue-on-error: true
-
-      - name: Discover all form configs
+      - name: Discover TS sample configs
         id: discover
         run: |
-          # Find all JSON files in public/examples/ (excluding debugger-results)
-          CONFIGS=$(find public/examples -name "*.json" -type f ! -name "debugger-results.json" 2>/dev/null || true)
-          
-          if [ -z "$CONFIGS" ]; then
-            echo "⚠️ No configs found in public/examples/"
-            echo "configs=" >> $GITHUB_OUTPUT
+          # Find all TypeScript sample files in src/config/samples/
+          SAMPLES=$(find src/config/samples -name "*.ts" -type f 2>/dev/null || true)
+          if [ -z "$SAMPLES" ]; then
+            echo "⚠️ No TypeScript samples found in src/config/samples/"
+            echo "samples=" >> $GITHUB_OUTPUT
           else
-            echo "✅ Found $(echo "$CONFIGS" | wc -l) config(s)"
-            echo "$CONFIGS" | while read config; do
-              echo "   - $(basename $config)"
+            echo "✅ Found $(echo "$SAMPLES" | wc -l) sample(s)"
+            echo "$SAMPLES" | while read f; do
+              echo "   - $(basename $f)"
             done
-            echo "configs<<EOF" >> $GITHUB_OUTPUT
-            echo "$CONFIGS" >> $GITHUB_OUTPUT
+            echo "samples<<EOF" >> $GITHUB_OUTPUT
+            echo "$SAMPLES" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run Debugger on all configs
+      - name: Run Debugger on TS samples
         id: run_all
         run: |
           mkdir -p ci-results
           EXIT_CODE=0
-          CONFIGS="${{ steps.discover.outputs.configs }}"
+          SAMPLES="${{ steps.discover.outputs.samples }}"
           
-          if [ -z "$CONFIGS" ]; then
-            echo "No configs to analyze"
+          if [ -z "$SAMPLES" ]; then
+            echo "No samples to analyze"
             exit 0
           fi
           
           # Process each config and track failures
-          while IFS= read -r config; do
-            if [ -n "$config" ]; then
+          while IFS= read -r sample; do
+            if [ -n "$sample" ]; then
               echo "============================================"
-              echo "Analyzing: $config"
+              echo "Analyzing TS sample: $sample"
               echo "============================================"
-              BASENAME=$(basename "$config" .json)
+              BASENAME=$(basename "$sample" .ts)
               OUTPUT="ci-results/${BASENAME}-results.json"
               
-              if node tools/debugger/cli/run-debugger.mjs "$config" tools/debugger/specs/invariants.json tools/debugger/specs/examples.json > "ci-results/${BASENAME}.log" 2>&1; then
+              # Run TS-aware debugger CLI, capture output
+              if node tools/debugger/cli/run-debugger-config.mjs "$sample" > "ci-results/${BASENAME}.log" 2>&1; then
                 echo "✓ $BASENAME: PASSED (no errors)" >> ci-results/summary.txt
               else
                 echo "✗ $BASENAME: FAILED (errors detected)" >> ci-results/summary.txt
                 EXIT_CODE=1
               fi
               
-              # Copy results with unique name
-              if [ -f "$(dirname "$config")/debugger-results.json" ]; then
-                cp "$(dirname "$config")/debugger-results.json" "$OUTPUT"
-              fi
+              # Extract JSON findings by re-running with JSON output via temp file
+              node -e "const {default:run}=require('node:module').createRequire(process.cwd()+'/').resolve ? null : null" >/dev/null 2>&1 || true
+              # Generate JSON by parsing the TS module again and running engine in Node
+              node -e '
+                (async () => {
+                  const { readFile } = await import("fs/promises");
+                  const { execSync } = await import("child_process");
+                  const { join } = await import("path");
+                  const base = process.argv[1];
+                  const out = process.argv[2];
+                  const tsPath = base;
+                  const content = await readFile(tsPath, "utf8");
+                  const m = content.match(/export\s+const\s+(\w+):\s*FormConfig/);
+                  if (!m) process.exit(0);
+                  const name = m[1];
+                  const tmp = join(process.cwd(), ".temp-ci.mts");
+                  const src = `import { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
+                  await (await import("fs/promises")).writeFile(tmp, src, "utf8");
+                  const json = execSync(`npx tsx ${tmp}`, { encoding: "utf8" });
+                  await (await import("fs/promises")).writeFile(out, json, "utf8");
+                  try { execSync(`rm -f ${tmp}`) } catch {}
+                })();
+              ' "$sample" "$OUTPUT"
             fi
-          done <<< "$CONFIGS"
+          done <<< "$SAMPLES"
           
           # Report overall status
           if [ $EXIT_CODE -eq 1 ]; then

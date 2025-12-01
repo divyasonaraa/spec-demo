@@ -88,3 +88,48 @@ export async function runDebugger({ configPath, invariantsPath, examplesPath, ve
 
     return { findings, outPath }
 }
+
+// New: run engine directly on an in-memory config object
+export default async function runEngine({ config, verbose = false }) {
+    const startTime = performance.now()
+
+    if (verbose) {
+        console.log(`[VERBOSE] Config loaded: ${config.steps?.length || 0} steps, ${config.id || 'no-id'}`)
+        console.log(`[VERBOSE] Running static analysis (no test states needed)`)    
+    }
+
+    const findings = []
+    const ruleTimes = {}
+
+    const ctx = { config }
+    const rules = [
+        { name: 'requiredHidden', fn: requiredHidden },
+        { name: 'mutuallyExclusive', fn: mutuallyExclusive },
+        { name: 'impossibleCombo', fn: impossibleCombo },
+        { name: 'schemaDrift', fn: schemaDrift },
+        { name: 'versionBreak', fn: versionBreak }
+    ]
+
+    for (const rule of rules) {
+        const ruleStart = performance.now()
+        const ruleFindings = rule.fn(ctx)
+        const ruleTime = performance.now() - ruleStart
+        ruleTimes[rule.name] = (ruleTimes[rule.name] || 0) + ruleTime
+        findings.push(...ruleFindings)
+    }
+
+    const totalTime = performance.now() - startTime
+
+    // Console output styled like debugger
+    if (findings.length === 0) {
+        console.log('✅ No issues found! Config looks good.')
+    } else {
+        for (const f of findings) {
+            console.log(formatFinding(f))
+        }
+    }
+    console.log('\n' + formatSummary(findings))
+    console.log(`\n⏱️  Performance: Total ${totalTime.toFixed(2)}ms`)
+
+    return findings
+}
