@@ -26,7 +26,7 @@ function evalTsToJson(tsPath) {
     const src = `import { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
   writeFileSync(tmp, src, 'utf8');
     // Ensure tsconfig-paths is available to the tsx process and preloaded
-    const json = execSync(`npx --yes --package tsconfig-paths tsx -r tsconfig-paths/register ${tmp}`, { encoding: 'utf8' });
+    const json = execSync(`npx --yes --package tsconfig-paths --package tsx tsx -r tsconfig-paths/register ${tmp}`, { encoding: 'utf8' });
   try { execSync(`rm -f ${tmp}`); } catch {}
   return JSON.parse(json);
 }
