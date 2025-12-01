@@ -129,7 +129,7 @@ jobs:
       - name: Generate detailed summary (direct TS)
         if: always()
         run: |
-          node tools/debugger/ci/generate-summary.mjs
+          node -r tsx/register -r tsconfig-paths/register tools/debugger/ci/generate-summary.mjs
         shell: bash
 
       - name: Comment summary

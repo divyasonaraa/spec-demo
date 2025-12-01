@@ -17,18 +17,21 @@ function discoverSamples() {
   }
 }
 
-function evalTsToJson(tsPath) {
+async function importTsConfig(tsPath) {
   const content = readFileSync(tsPath, 'utf8');
+  // Try default export first
+  const hasDefault = /export\s+default\s+/.test(content);
+  const mod = await import(join(process.cwd(), tsPath));
+  if (hasDefault && mod?.default) return mod.default;
+  // Fallback: find named export with FormConfig type
   const m = content.match(/export\s+const\s+(\w+)\s*:\s*FormConfig/);
-  if (!m) return null;
-  const name = m[1];
-  const tmp = join(process.cwd(), `.tmp-eval-${name}.mts`);
-    const src = `import { ${name} } from '${tsPath}';\nconsole.log(JSON.stringify(${name}))`;
-  writeFileSync(tmp, src, 'utf8');
-    // Ensure tsconfig-paths is available to the tsx process and preloaded
-    const json = execSync(`npx --yes --package tsconfig-paths --package tsx tsx -r tsconfig-paths/register ${tmp}`, { encoding: 'utf8' });
-  try { execSync(`rm -f ${tmp}`); } catch {}
-  return JSON.parse(json);
+  if (m && mod[m[1]]) return mod[m[1]];
+  // Else, return first object-like export
+  for (const key of Object.keys(mod)) {
+    const val = mod[key];
+    if (val && typeof val === 'object') return val;
+  }
+  return null;
 }
 
 async function runEngine(configObj) {
@@ -86,7 +89,7 @@ async function main() {
 
   for (const sample of samples) {
     const base = sample.split('/').pop().replace(/\.ts$/, '');
-    const cfg = evalTsToJson(sample);
+    const cfg = await importTsConfig(sample);
     if (!cfg) continue;
     const findings = await runEngine(cfg);
     // attach file for formatting
