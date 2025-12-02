@@ -84,6 +84,9 @@ async function runPlanner() {
     throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
   }
   
+  // Ensure affectedFiles is an array
+  triage.affectedFiles = triage.affectedFiles || [];
+  
   // Get GitHub client
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
@@ -115,16 +118,16 @@ async function runPlanner() {
   console.log(`[Planner] Generated ${planSteps.length} plan steps`);
   
   // Analyze file changes
-  const fileChanges = await analyzeFileChanges(triage.affected_files, planSteps);
+  const fileChanges = await analyzeFileChanges(triage.affectedFiles || [], planSteps);
   console.log(`[Planner] Analyzed ${fileChanges.length} file changes`);
   
   // Select validation commands
   const validationCommands = selectValidationCommands(
     triage.risk,
-    triage.affected_files,
+    triage.affectedFiles,
     conventions
-  );
-  console.log(`[Planner] Validation: ${validationCommands.join(', ')}`);
+  ) || [];
+  console.log(`[Planner] Validation: ${validationCommands.length > 0 ? validationCommands.join(', ') : 'none'}`);
   
   // Evaluate human review need
   const humanCheckReason = evaluateHumanReviewNeed(
@@ -189,7 +192,7 @@ async function generatePlanSteps(issue, triage) {
 Issue #${issue.number}: ${issue.title}
 Details: ${issue.body || 'No additional details provided'}
 Classification: ${triage.classification}
-Affected Files: ${triage.affected_files.join(', ')}
+Affected Files: ${(triage.affectedFiles || []).join(', ') || 'None specified'}
 
 Generate 3-7 implementation steps. For each step, provide:
 1. order: Sequential number (1, 2, 3, ...)
@@ -261,6 +264,14 @@ Example format:
  * Analyze file changes to determine operations and summaries
  */
 async function analyzeFileChanges(affectedFiles, planSteps) {
+  // Ensure affectedFiles is an array
+  affectedFiles = affectedFiles || [];
+  
+  // If no affected files, return empty array
+  if (affectedFiles.length === 0) {
+    return [];
+  }
+  
   return affectedFiles.map(path => {
     // Determine operation based on plan step descriptions
     const operation = determineOperation(path, planSteps);
@@ -346,6 +357,9 @@ function estimateLineRange(path, steps) {
  */
 function selectValidationCommands(risk, affectedFiles, conventions) {
   const commands = [];
+  
+  // Ensure affectedFiles is an array
+  affectedFiles = affectedFiles || [];
   
   // Always lint
   if (conventions.lint_command) {
