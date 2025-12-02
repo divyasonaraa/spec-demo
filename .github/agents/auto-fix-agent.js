@@ -210,17 +210,30 @@ async function runAutoFix() {
 async function generateFixDirectly(issue, triage, conventions, github, owner, repo) {
   const ai = getAIClient();
 
+  // Fetch project context first (package.json, key files)
+  const projectContext = await fetchProjectContext(github, owner, repo, DEFAULT_BRANCH);
+  console.log(`[Auto-Fix] Project: ${projectContext.framework} (${projectContext.language})`);
+
+  // Determine files to fetch based on issue and project structure
+  let filesToFetch = triage.affectedFiles || [];
+  
+  // If no files specified, try to infer from issue and project context
+  if (filesToFetch.length === 0) {
+    filesToFetch = await inferAffectedFiles(issue, projectContext, github, owner, repo);
+    console.log(`[Auto-Fix] Inferred files: ${filesToFetch.join(', ')}`);
+  }
+
   // Fetch affected file contents
   const fileContents = await fetchAffectedFiles(
     github,
     owner,
     repo,
-    triage.affectedFiles || [],
+    filesToFetch,
     DEFAULT_BRANCH
   );
 
-  // Build comprehensive prompt
-  const prompt = buildDirectFixPrompt(issue, triage, conventions, fileContents);
+  // Build comprehensive prompt WITH project context
+  const prompt = buildDirectFixPrompt(issue, triage, conventions, fileContents, projectContext);
 
   console.log('[Auto-Fix] Sending direct fix request to AI...');
 
@@ -265,22 +278,48 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
 /**
  * Build comprehensive prompt for direct fix generation
  */
-function buildDirectFixPrompt(issue, triage, conventions, fileContents) {
+function buildDirectFixPrompt(issue, triage, conventions, fileContents, projectContext) {
   const fileContexts = fileContents.map(fc => {
-    return `### File: ${fc.path}\n\`\`\`\n${fc.content}\n\`\`\``;
+    return `### File: ${fc.path}\n\`\`\`${getFileExtension(fc.path)}\n${fc.content}\n\`\`\``;
   }).join('\n\n');
 
-  return `You are an expert software engineer. Fix this GitHub issue directly by generating complete, updated file content.
+  // Build project structure summary
+  const structureSummary = projectContext.structure
+    ? `\n## Project Structure\n\`\`\`\n${projectContext.structure}\n\`\`\``
+    : '';
+
+  return `You are an expert software engineer. Fix this GitHub issue by modifying ONLY the existing files in this project.
+
+## CRITICAL: Project Context
+- **Framework**: ${projectContext.framework}
+- **Language**: ${projectContext.language}
+- **Project Type**: ${projectContext.projectType}
+${projectContext.framework === 'Vue.js' ? `
+**Vue.js Specific**:
+- Use Vue 3 Composition API with <script setup> syntax
+- Use TypeScript for .vue and .ts files
+- Components are in src/components/
+- Composables are in src/composables/
+- DO NOT create React components (no useState, useEffect, jsx)
+- DO NOT create new files unless absolutely necessary
+- ONLY modify existing files that are provided below
+` : ''}
+${projectContext.framework === 'React' ? `
+**React Specific**:
+- Use functional components with hooks
+- DO NOT create Vue components
+` : ''}
+${structureSummary}
 
 ## Issue Context
 - **Issue #${issue.number}**: ${issue.title}
 - **Details**: ${issue.body || 'No additional details provided'}
 - **Classification**: ${triage.classification}
 - **Risk Level**: ${triage.risk}
-- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'Not specified'}
+- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'See files below'}
 
-## Current File Contents
-${fileContexts || 'No files specified - you may need to determine which files to modify'}
+## Current File Contents (MODIFY THESE FILES ONLY)
+${fileContexts || 'ERROR: No files provided - cannot proceed'}
 
 ## Coding Standards
 - Indentation: ${conventions.indent_style === 'space' ? `${conventions.indent_size} spaces` : 'tabs'}
@@ -288,17 +327,18 @@ ${fileContexts || 'No files specified - you may need to determine which files to
 - Final newline: ${conventions.insert_final_newline ? 'required' : 'optional'}
 
 ## Requirements
-1. **Minimal changes**: Only fix what's needed to resolve the issue
-2. **Preserve formatting**: Keep existing code style, comments, whitespace
-3. **No refactoring**: Don't improve unrelated code
-4. **Complete files**: Provide full updated file content (not diffs)
-5. **Conventional commits**: Follow conventional commit format
+1. **ONLY modify files shown above** - Do not create new files unless the fix absolutely requires it
+2. **Match existing patterns** - Follow the same code style as existing files
+3. **Framework consistency** - Use ${projectContext.framework} patterns (NOT other frameworks)
+4. **Minimal changes** - Only fix what's needed to resolve the issue
+5. **Preserve formatting** - Keep existing code style, comments, whitespace
+6. **No refactoring** - Don't improve unrelated code
 
 ## Output Format (JSON only, no markdown)
 {
   "file_changes": [
     {
-      "path": "path/to/file.ext",
+      "path": "path/to/existing/file.ext",
       "content": "full updated file content here",
       "change_summary": "Brief description of change"
     }
@@ -306,13 +346,194 @@ ${fileContexts || 'No files specified - you may need to determine which files to
   "commit_message": "type(scope): description\\n\\nFixes #${issue.number}"
 }
 
-**Important**: 
+**IMPORTANT**: 
+- The path MUST be one of the files shown above (existing files)
 - Include ALL lines of each file (complete content)
 - Use proper escape sequences for special characters in JSON strings
-- Commit message must follow conventional commits format
-- type: fix, feat, docs, chore, etc.
+- For ${projectContext.framework} project - use ${projectContext.framework} patterns only!
 
 Generate the fix now:`;
+}
+
+/**
+ * Get file extension for syntax highlighting
+ */
+function getFileExtension(path) {
+  const ext = path.split('.').pop();
+  const extMap = {
+    'vue': 'vue',
+    'ts': 'typescript',
+    'js': 'javascript',
+    'tsx': 'tsx',
+    'jsx': 'jsx',
+    'json': 'json',
+    'md': 'markdown',
+    'css': 'css',
+    'scss': 'scss',
+    'html': 'html'
+  };
+  return extMap[ext] || ext;
+}
+
+/**
+ * Fetch project context (framework, language, structure)
+ */
+async function fetchProjectContext(github, owner, repo, ref) {
+  const context = {
+    framework: 'Unknown',
+    language: 'Unknown',
+    projectType: 'Unknown',
+    structure: '',
+    dependencies: {}
+  };
+
+  try {
+    // Fetch package.json
+    const { data: pkgFile } = await github.rest.repos.getContent({
+      owner,
+      repo,
+      path: 'package.json',
+      ref
+    });
+
+    const pkg = JSON.parse(Buffer.from(pkgFile.content, 'base64').toString('utf8'));
+    context.dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    // Detect framework
+    if (context.dependencies['vue'] || context.dependencies['@vue/cli-service']) {
+      context.framework = 'Vue.js';
+      context.projectType = context.dependencies['vite'] ? 'Vite + Vue 3' : 'Vue CLI';
+    } else if (context.dependencies['react'] || context.dependencies['react-dom']) {
+      context.framework = 'React';
+      context.projectType = context.dependencies['next'] ? 'Next.js' : 'React';
+    } else if (context.dependencies['@angular/core']) {
+      context.framework = 'Angular';
+      context.projectType = 'Angular';
+    } else if (context.dependencies['svelte']) {
+      context.framework = 'Svelte';
+      context.projectType = 'Svelte';
+    } else {
+      context.framework = 'Node.js';
+      context.projectType = 'Node.js';
+    }
+
+    // Detect language
+    if (context.dependencies['typescript'] || pkg.devDependencies?.['typescript']) {
+      context.language = 'TypeScript';
+    } else {
+      context.language = 'JavaScript';
+    }
+
+  } catch (error) {
+    console.warn('[Auto-Fix] Could not fetch package.json:', error.message);
+  }
+
+  // Fetch project structure (top-level directories)
+  try {
+    const { data: rootContents } = await github.rest.repos.getContent({
+      owner,
+      repo,
+      path: '',
+      ref
+    });
+
+    if (Array.isArray(rootContents)) {
+      const structure = rootContents
+        .filter(item => item.type === 'dir' || item.name.endsWith('.json') || item.name.endsWith('.ts') || item.name.endsWith('.js'))
+        .map(item => item.type === 'dir' ? `${item.name}/` : item.name)
+        .slice(0, 20)
+        .join('\n');
+      context.structure = structure;
+    }
+  } catch (error) {
+    console.warn('[Auto-Fix] Could not fetch project structure:', error.message);
+  }
+
+  return context;
+}
+
+/**
+ * Infer affected files from issue content and project context
+ */
+async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
+  const issueText = `${issue.title} ${issue.body || ''}`.toLowerCase();
+  const filesToFetch = [];
+
+  // Keywords to file mappings for Vue.js projects
+  const vueFileMappings = {
+    // Form-related
+    'form': ['src/components/form/FormRenderer.vue', 'src/components/form/FieldWrapper.vue', 'src/composables/useFormValidation.ts'],
+    'validation': ['src/composables/useFormValidation.ts', 'src/components/form/ValidationError.vue', 'src/components/form/FieldWrapper.vue'],
+    'error': ['src/components/form/ValidationError.vue', 'src/composables/useFormValidation.ts', 'src/components/form/FieldWrapper.vue'],
+    'input': ['src/components/base/BaseInput.vue', 'src/components/form/FieldWrapper.vue'],
+    'field': ['src/components/form/FieldWrapper.vue', 'src/components/form/FormRenderer.vue'],
+    'submit': ['src/composables/useFormSubmission.ts', 'src/components/form/FormRenderer.vue'],
+    
+    // Component-related
+    'button': ['src/components/base/BaseButton.vue'],
+    'select': ['src/components/base/BaseSelect.vue'],
+    'checkbox': ['src/components/base/BaseCheckbox.vue'],
+    'radio': ['src/components/base/BaseRadio.vue'],
+    'textarea': ['src/components/base/BaseTextarea.vue'],
+    
+    // Step/wizard-related
+    'step': ['src/components/form/FormStep.vue', 'src/components/form/StepIndicator.vue', 'src/composables/useMultiStep.ts'],
+    'multi-step': ['src/composables/useMultiStep.ts', 'src/components/form/FormStep.vue'],
+    
+    // Conditional-related
+    'conditional': ['src/composables/useConditionalFields.ts'],
+    'dependency': ['src/composables/useFieldDependency.ts'],
+    
+    // Demo/view-related
+    'demo': ['src/views/DemoView.vue'],
+    'config': ['src/components/demo/ConfigEditor.vue', 'src/components/demo/ConfigValidator.vue'],
+    
+    // Payload-related
+    'payload': ['src/components/payload/PayloadPreview.vue', 'src/components/payload/JsonDisplay.vue'],
+    'json': ['src/components/payload/JsonDisplay.vue'],
+    
+    // Toast/notification
+    'toast': ['src/components/common/ToastNotification.vue'],
+    'notification': ['src/components/common/ToastNotification.vue'],
+  };
+
+  // React file mappings (if needed)
+  const reactFileMappings = {
+    'form': ['src/components/Form.tsx', 'src/hooks/useForm.ts'],
+    'validation': ['src/hooks/useValidation.ts'],
+  };
+
+  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings : 
+                        projectContext.framework === 'React' ? reactFileMappings : {};
+
+  // Check which keywords match
+  for (const [keyword, files] of Object.entries(fileMappings)) {
+    if (issueText.includes(keyword)) {
+      for (const file of files) {
+        if (!filesToFetch.includes(file)) {
+          filesToFetch.push(file);
+        }
+      }
+    }
+  }
+
+  // Validate files exist (and fetch only existing ones)
+  const validFiles = [];
+  for (const file of filesToFetch.slice(0, 5)) { // Limit to 5 files
+    try {
+      await github.rest.repos.getContent({
+        owner,
+        repo,
+        path: file,
+        ref: DEFAULT_BRANCH
+      });
+      validFiles.push(file);
+    } catch (error) {
+      // File doesn't exist, skip
+    }
+  }
+
+  return validFiles;
 }
 
 /**
