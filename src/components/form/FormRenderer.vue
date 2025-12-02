@@ -56,6 +56,11 @@
                     :disabled="formState.submitState === 'submitting'">
                     Submit
                 </BaseButton>
+                <!-- Go Back button - visible after submission -->
+                <BaseButton v-if="formState.submitState === 'success'" type="button" variant="secondary"
+                    @click="handleGoBack">
+                    Go Back
+                </BaseButton>
             </div>
         </div>
     </form>
@@ -303,6 +308,17 @@ async function handleNext() {
 function handlePrevious() {
     if (!multiStep) return
 
+    transitionDirection.value = 'slide-right'
+    multiStep.goToPrevious()
+}
+
+/**
+ * Handles go back button click after submission
+ */
+function handleGoBack() {
+    if (!multiStep) return
+
+    formState.value.submitState = 'idle'
     transitionDirection.value = 'slide-right'
     multiStep.goToPrevious()
 }
