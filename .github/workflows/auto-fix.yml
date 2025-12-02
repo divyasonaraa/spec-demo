@@ -69,60 +69,12 @@ jobs:
           retention-days: 7
         continue-on-error: true
 
-  planner:
-    name: Generate Fix Plan
+  auto-fix:
+    name: Generate & Apply Fix
     runs-on: ubuntu-latest
     needs: triage
     if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX' || needs.triage.outputs.auto_fix_decision == 'DRAFT_PR'
-    timeout-minutes: 2
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      
-      - name: Install dependencies
-        run: |
-          cd .github/agents
-          npm install
-      
-      - name: Download triage result
-        uses: actions/download-artifact@v4
-        with:
-          name: triage-result
-          path: .github/agents/
-      
-      - name: Run planner agent
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
-          TRIAGE_RESULT_PATH: ./triage-result.json
-          OUTPUT_PATH: ./fix-plan.json
-        run: |
-          cd .github/agents
-          node planner-agent.js
-      
-      - name: Upload fix plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: fix-plan
-          path: .github/agents/fix-plan.json
-          retention-days: 7
-        continue-on-error: true
-  
-  code:
-    name: Generate Code Fix
-    runs-on: ubuntu-latest
-    needs: [triage, planner]
-    if: |
-      (needs.triage.outputs.auto_fix_decision == 'AUTO_FIX' || needs.triage.outputs.auto_fix_decision == 'DRAFT_PR') &&
-      needs.planner.result == 'success'
-    timeout-minutes: 5
+    timeout-minutes: 3
     
     steps:
       - name: Checkout repository
@@ -151,23 +103,19 @@ jobs:
           name: triage-result
           path: .github/agents/
       
-      - name: Download fix plan
-        uses: actions/download-artifact@v4
-        with:
-          name: fix-plan
-          path: .github/agents/
-      
-      - name: Run code agent
+      - name: Run auto-fix agent
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
-          FIX_PLAN_PATH: ./fix-plan.json
+          TRIAGE_RESULT_PATH: ./triage-result.json
           OUTPUT_PATH: ./commit-result.json
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
         run: |
           cd .github/agents
-          node code-agent.js
+          node auto-fix-agent.js
       
       - name: Upload commit result
         uses: actions/upload-artifact@v4
@@ -175,15 +123,15 @@ jobs:
           name: commit-result
           path: .github/agents/commit-result.json
           retention-days: 7
+        continue-on-error: true
   
   pr:
     name: Create Pull Request
     runs-on: ubuntu-latest
-    needs: [triage, planner, code]
+    needs: [triage, auto-fix]
     if: |
       (needs.triage.outputs.auto_fix_decision == 'AUTO_FIX' || needs.triage.outputs.auto_fix_decision == 'DRAFT_PR') &&
-      needs.planner.result == 'success' &&
-      needs.code.result == 'success'
+      needs.auto-fix.result == 'success'
     timeout-minutes: 1
     
     steps:
@@ -206,12 +154,6 @@ jobs:
           name: triage-result
           path: .github/agents/
       
-      - name: Download fix plan
-        uses: actions/download-artifact@v4
-        with:
-          name: fix-plan
-          path: .github/agents/
-      
       - name: Download commit result
         uses: actions/download-artifact@v4
         with:
@@ -224,7 +166,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
           TRIAGE_RESULT_PATH: ./triage-result.json
-          FIX_PLAN_PATH: ./fix-plan.json
           COMMIT_RESULT_PATH: ./commit-result.json
           OUTPUT_PATH: ./pr-result.json
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
