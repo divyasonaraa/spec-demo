@@ -18,21 +18,29 @@ export const SECURITY_KEYWORDS = [
   /\b(credential|auth|authentication|authorization)\b/i,
   /\b(private[_\s-]?key|public[_\s-]?key)\b/i,
   /\b(certificate|cert|ssl|tls)\b/i,
+  /\b(signing[_\s-]?key|encryption[_\s-]?key)\b/i,
+  /\b(master[_\s-]?password|root[_\s-]?password)\b/i,
   
   // Sensitive Data
   /\b(ssn|social[_\s-]?security)\b/i,
   /\b(credit[_\s-]?card|ccn|cvv)\b/i,
-  /\b(encryption|decrypt|cipher)\b/i,
+  /\b(encryption|decrypt|cipher|encrypt)\b/i,
+  /\b(pii|personal[_\s-]?identifiable[_\s-]?information)\b/i,
+  /\b(gdpr|hipaa|pci[_\s-]?dss)\b/i,
   
   // Security Operations
-  /\b(security|vulnerability|exploit)\b/i,
-  /\b(permission|role|privilege)\b/i,
-  /\b(session|cookie)\b/i,
+  /\b(security|vulnerability|exploit|cve)\b/i,
+  /\b(permission|role|privilege|acl)\b/i,
+  /\b(session|cookie|csrf)\b/i,
+  /\b(xss|sql[_\s-]?injection|injection)\b/i,
+  /\b(cors|same[_\s-]?origin)\b/i,
   
   // Infrastructure
   /\b(database[_\s-]?url|db[_\s-]?connection)\b/i,
   /\b(connection[_\s-]?string)\b/i,
-  /\b(admin|root|sudo)\b/i,
+  /\b(admin|root|sudo|superuser)\b/i,
+  /\b(production|prod[_\s-]?env)\b/i,
+  /\b(api[_\s-]?endpoint|webhook[_\s-]?url)\b/i,
 ];
 
 /**
@@ -45,6 +53,8 @@ export const SECURITY_FILE_PATTERNS = [
   /\.env\./i,
   /config\/secrets/i,
   /config\/credentials/i,
+  /secrets\//i,
+  /\.secrets/i,
   
   // Keys & Certificates
   /\.pem$/i,
@@ -53,6 +63,8 @@ export const SECURITY_FILE_PATTERNS = [
   /\.cer$/i,
   /\.p12$/i,
   /\.pfx$/i,
+  /id_rsa/i,
+  /id_dsa/i,
   
   // Authentication Files
   /auth/i,
@@ -60,19 +72,26 @@ export const SECURITY_FILE_PATTERNS = [
   /session/i,
   /oauth/i,
   /jwt/i,
+  /passport/i,
+  /middleware\/auth/i,
   
   // Deployment & Infrastructure
   /deploy/i,
+  /deployment/i,
   /terraform/i,
   /cloudformation/i,
   /kubernetes/i,
   /k8s/i,
   /docker-compose\.prod/i,
+  /helm\//i,
+  /ansible\//i,
   
   // Database
   /migration/i,
   /schema/i,
   /seed/i,
+  /db\/migrate/i,
+  /alembic\//i,
   
   // Security-specific
   /security/i,
@@ -80,6 +99,14 @@ export const SECURITY_FILE_PATTERNS = [
   /roles/i,
   /\.htaccess/i,
   /\.htpasswd/i,
+  /cors/i,
+  /firewall/i,
+  
+  // CI/CD (already blocked in code-agent but double-check here)
+  /^\.github\/workflows/i,
+  /\.gitlab-ci/i,
+  /\.circleci/i,
+  /jenkinsfile/i,
 ];
 
 /**
@@ -92,9 +119,11 @@ export const RISKY_CHANGE_TYPES = [
     patterns: [
       /database\s+migration/i,
       /alter\s+table/i,
-      /drop\s+(table|column|database)/i,
-      /create\s+table/i,
+      /drop\s+(table|column|database|index)/i,
+      /create\s+(table|database|index)/i,
       /add\s+column/i,
+      /remove\s+column/i,
+      /rename\s+(table|column)/i,
     ],
     reason: 'Database schema changes can cause data loss or system downtime',
   },
@@ -102,10 +131,17 @@ export const RISKY_CHANGE_TYPES = [
     name: 'DEPENDENCY_CHANGE',
     patterns: [
       /package\.json/i,
+      /package-lock\.json/i,
+      /yarn\.lock/i,
+      /pnpm-lock\.yaml/i,
       /requirements\.txt/i,
+      /Pipfile/i,
       /Gemfile/i,
       /go\.mod/i,
+      /go\.sum/i,
       /Cargo\.toml/i,
+      /Cargo\.lock/i,
+      /composer\.json/i,
     ],
     reason: 'Dependency changes can introduce vulnerabilities or breaking changes',
   },
@@ -117,6 +153,10 @@ export const RISKY_CHANGE_TYPES = [
       /rollup\.config/i,
       /tsconfig\.json/i,
       /babel\.config/i,
+      /postcss\.config/i,
+      /tailwind\.config/i,
+      /eslint/i,
+      /prettier/i,
     ],
     reason: 'Build configuration changes can break production builds',
   },
@@ -127,6 +167,8 @@ export const RISKY_CHANGE_TYPES = [
       /\.gitlab-ci\.yml/i,
       /\.circleci/i,
       /jenkinsfile/i,
+      /azure-pipelines/i,
+      /bitbucket-pipelines/i,
     ],
     reason: 'CI/CD changes can break deployment pipelines',
   },
@@ -138,8 +180,39 @@ export const RISKY_CHANGE_TYPES = [
       /\.c$/i,
       /\.cpp$/i,
       /\.h$/i,
+      /\.hpp$/i,
+      /\.cc$/i,
+      /\.cxx$/i,
     ],
     reason: 'Binary compilation changes require careful testing',
+  },
+  {
+    name: 'INFRASTRUCTURE_CONFIG',
+    patterns: [
+      /docker-compose/i,
+      /Dockerfile/i,
+      /kubernetes/i,
+      /k8s/i,
+      /terraform/i,
+      /cloudformation/i,
+      /helm/i,
+      /nginx\.conf/i,
+      /apache/i,
+    ],
+    reason: 'Infrastructure changes can affect production availability and security',
+  },
+  {
+    name: 'API_CONTRACT_CHANGE',
+    patterns: [
+      /api\s+endpoint/i,
+      /breaking\s+change/i,
+      /remove\s+(endpoint|route)/i,
+      /change\s+(response|request)/i,
+      /openapi/i,
+      /swagger/i,
+      /graphql\s+schema/i,
+    ],
+    reason: 'API changes can break client integrations',
   },
 ];
 

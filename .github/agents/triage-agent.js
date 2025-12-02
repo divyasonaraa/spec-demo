@@ -196,6 +196,18 @@ function formatTriageComment(triageResult) {
   if (triageResult.securityFlags) {
     markdown += `**⚠️ Security Concerns Detected**\n\n`;
     markdown += `${triageResult.securityDetails.summary}\n\n`;
+    
+    // Show detailed security findings
+    if (triageResult.securityDetails.keywordMatches.length > 0) {
+      markdown += `- **Keywords**: ${triageResult.securityDetails.keywordMatches.length} security-sensitive keyword(s) detected\n`;
+    }
+    if (triageResult.securityDetails.fileMatches.length > 0) {
+      markdown += `- **Files**: ${triageResult.securityDetails.fileMatches.length} sensitive file(s) identified\n`;
+    }
+    if (triageResult.securityDetails.riskyChangeMatches.length > 0) {
+      markdown += `- **Change Types**: ${triageResult.securityDetails.riskyChangeMatches.map(m => m.type).join(', ')}\n`;
+    }
+    markdown += `\n`;
   }
   
   // Auto-fix decision

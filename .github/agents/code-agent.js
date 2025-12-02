@@ -17,6 +17,7 @@ import { getGitHubClient } from './shared/github-client.js';
 import { getAIClient } from './shared/ai-client.js';
 import { AutoFixError } from './shared/error-handler.js';
 import * as gitOps from './shared/git-operations.js';
+import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-constraints.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -140,8 +141,8 @@ async function runCodeGeneration() {
     issue_number: parseInt(ISSUE_NUMBER, 10)
   });
 
-  // Security pre-check
-  securityPreCheck(fixPlan.file_changes);
+  // Security pre-check (pass issue context for risky change detection)
+  securityPreCheck(fixPlan.file_changes, issue.title, issue.body || '');
 
   // Fetch repository style config
   const styleConfig = await fetchStyleConfig(github, owner, repo);
@@ -219,31 +220,87 @@ async function runCodeGeneration() {
 
 /**
  * Security pre-check to block sensitive file modifications
+ * Uses comprehensive security constraints from security-constraints.js
  */
-function securityPreCheck(fileChanges) {
-  const BLOCKED_PATTERNS = [
-    /^\.env/,
-    /\.env$/,
-    /config\/secrets\//,
-    /\.pem$/,
-    /\.key$/,
-    /deployment\//,
-    /^\.github\/workflows\//,
-    /docker-compose/,
-    /kubernetes\//
-  ];
-
+function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
+  console.log('[Code Agent] Running security pre-check...');
+  
+  const violations = [];
+  
+  // Check each file against security patterns
   for (const change of fileChanges) {
-    for (const pattern of BLOCKED_PATTERNS) {
-      if (pattern.test(change.path)) {
-        throw new AutoFixError(
-          'SECURITY_VIOLATION',
-          `Attempted to modify blocked file: ${change.path}`,
-          { path: change.path, pattern: pattern.source }
-        );
+    const filePath = change.path;
+    
+    // Check if file path matches security-sensitive patterns
+    const fileMatches = checkSecurityFilePath(filePath);
+    if (fileMatches.length > 0) {
+      violations.push({
+        path: filePath,
+        reason: 'Security-sensitive file path detected',
+        patterns: fileMatches.map(m => m.pattern.source),
+      });
+    }
+    
+    // Additional hardcoded critical patterns (CI/CD, env files, keys)
+    const CRITICAL_PATTERNS = [
+      { pattern: /^\.env/, reason: 'Environment configuration file' },
+      { pattern: /\.env$/, reason: 'Environment configuration file' },
+      { pattern: /\.env\./, reason: 'Environment configuration file' },
+      { pattern: /config\/secrets\//, reason: 'Secrets configuration directory' },
+      { pattern: /\.pem$/, reason: 'Private key file' },
+      { pattern: /\.key$/, reason: 'Private key file' },
+      { pattern: /id_rsa/, reason: 'SSH private key' },
+      { pattern: /^\.github\/workflows\//, reason: 'CI/CD workflow file' },
+      { pattern: /deployment\//, reason: 'Deployment configuration' },
+      { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
+      { pattern: /kubernetes\//, reason: 'Kubernetes configuration' },
+    ];
+    
+    for (const { pattern, reason } of CRITICAL_PATTERNS) {
+      if (pattern.test(filePath)) {
+        violations.push({
+          path: filePath,
+          reason,
+          pattern: pattern.source,
+        });
       }
     }
   }
+  
+  // Check for risky change types
+  const filePaths = fileChanges.map(fc => fc.path);
+  const riskyChanges = checkRiskyChangeTypes(`${issueTitle} ${issueBody}`, filePaths);
+  
+  for (const riskyChange of riskyChanges) {
+    // Block critical risky changes
+    const BLOCKED_CHANGE_TYPES = ['DATABASE_MIGRATION', 'CI_CD_PIPELINE', 'INFRASTRUCTURE_CONFIG'];
+    if (BLOCKED_CHANGE_TYPES.includes(riskyChange.type)) {
+      violations.push({
+        path: 'multiple',
+        reason: `${riskyChange.type}: ${riskyChange.reason}`,
+        type: riskyChange.type,
+      });
+    }
+  }
+  
+  // If violations found, block execution
+  if (violations.length > 0) {
+    console.error('[Code Agent] ⛔ Security violations detected:');
+    violations.forEach(v => {
+      console.error(`  - ${v.path}: ${v.reason}`);
+    });
+    
+    throw new AutoFixError(
+      'SECURITY_VIOLATION',
+      `Code agent blocked: ${violations.length} security violation(s) detected`,
+      { 
+        violations,
+        message: 'This change affects security-sensitive files or configurations. Manual review required.',
+      }
+    );
+  }
+  
+  console.log('[Code Agent] ✓ Security pre-check passed');
 }
 
 /**

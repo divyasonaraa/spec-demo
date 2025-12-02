@@ -141,15 +141,15 @@ This feature uses GitHub Actions + Node.js structure (NOT Vue):
 
 ### Implementation for User Story 3
 
-- [ ] T044 [P] [US3] Add predefined security constraints to `.github/agents/shared/security-constraints.js`
-- [ ] T045 [P] [US3] Implement keyword pattern matching (password, secret, api key, token)
-- [ ] T046 [P] [US3] Implement file path pattern matching (.env*, config/secrets/*, *.pem, *.key)
-- [ ] T047 [US3] Implement change type detection (migration, schema change, binary compilation)
-- [ ] T048 [US3] Integrate security checks into triage agent risk assessment
-- [ ] T049 [US3] Add security flag generation to TriageResult
-- [ ] T050 [US3] Ensure HIGH risk + security flags → auto_fix_decision = HUMAN_REVIEW_REQUIRED
-- [ ] T051 [US3] Add pre-check in code agent to block security-sensitive file changes
-- [ ] T052 [US3] Test with: .env change, auth code change, deployment config, database migration
+- [X] T044 [P] [US3] Add predefined security constraints to `.github/agents/shared/security-constraints.js`
+- [X] T045 [P] [US3] Implement keyword pattern matching (password, secret, api key, token)
+- [X] T046 [P] [US3] Implement file path pattern matching (.env*, config/secrets/*, *.pem, *.key)
+- [X] T047 [US3] Implement change type detection (migration, schema change, binary compilation)
+- [X] T048 [US3] Integrate security checks into triage agent risk assessment
+- [X] T049 [US3] Add security flag generation to TriageResult
+- [X] T050 [US3] Ensure HIGH risk + security flags → auto_fix_decision = HUMAN_REVIEW_REQUIRED
+- [X] T051 [US3] Add pre-check in code agent to block security-sensitive file changes
+- [X] T052 [US3] Test with: .env change, auth code change, deployment config, database migration
 
 **Checkpoint**: Security gate prevents any auto-fix of sensitive code - 100% block rate for flagged issues
 
