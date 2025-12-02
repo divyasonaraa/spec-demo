@@ -30,6 +30,14 @@ export function createGitHubClient() {
 }
 
 /**
+ * Get GitHub client (alias for createGitHubClient for compatibility)
+ * @returns {Octokit} - Configured Octokit instance
+ */
+export function getGitHubClient() {
+  return createGitHubClient();
+}
+
+/**
  * Get issue details
  * @param {Octokit} octokit - GitHub client
  * @param {string} owner - Repository owner
