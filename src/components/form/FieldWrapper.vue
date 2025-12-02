@@ -9,7 +9,8 @@
                 {{ helpText }}
             </p>
 
-            <ValidationError v-if="error" :message="error" :aria-live="'polite'" />
+            <!-- BUG: Validation error never shows because condition is always false -->
+            <ValidationError v-if="false && error" :message="error" :aria-live="'polite'" />
         </div>
     </Transition>
 </template>
