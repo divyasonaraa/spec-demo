@@ -173,12 +173,62 @@ jobs:
           path: .github/agents/commit-result.json
           retention-days: 7
   
-  # Placeholder for PR generator (Phase 6)
-  # pr:
-  #   name: Create Pull Request
-  #   runs-on: ubuntu-latest
-  #   needs: [triage, planner, code]
-  #   if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX'
-  #   steps:
-  #     - name: Placeholder
-  #       run: echo "PR generator will be implemented in Phase 6"
+  pr:
+    name: Create Pull Request
+    runs-on: ubuntu-latest
+    needs: [triage, planner, code]
+    if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX'
+    timeout-minutes: 1
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: |
+          cd .github/agents
+          npm install
+      
+      - name: Download triage result
+        uses: actions/download-artifact@v4
+        with:
+          name: triage-result
+          path: .github/agents/
+      
+      - name: Download fix plan
+        uses: actions/download-artifact@v4
+        with:
+          name: fix-plan
+          path: .github/agents/
+      
+      - name: Download commit result
+        uses: actions/download-artifact@v4
+        with:
+          name: commit-result
+          path: .github/agents/
+      
+      - name: Run PR generator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          TRIAGE_RESULT_PATH: ./triage-result.json
+          FIX_PLAN_PATH: ./fix-plan.json
+          COMMIT_RESULT_PATH: ./commit-result.json
+          OUTPUT_PATH: ./pr-result.json
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          cd .github/agents
+          node pr-generator.js
+      
+      - name: Upload PR result
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-result
+          path: .github/agents/pr-result.json
+          retention-days: 7
