@@ -1,8 +1,37 @@
-# Fix for Automated Workflow
+# Fix for Automated Workflow - Simplified Architecture
 
 ## The Problem
 
-The planner agent is failing because it can't access the AI API (GitHub Models or Anthropic).
+The automation workflow was failing because:
+1. Too complex: 4 jobs (triage → planner → code → pr) with 2 separate AI calls
+2. GitHub Models API unreliable (beta feature)
+3. More failure points = more things to go wrong
+
+## ✅ Solution: Simplified Architecture (New!)
+
+We've rebuilt the system with a simpler, more reliable approach:
+
+**Before**: Triage → Planner → Code → PR (4 jobs, 2 AI calls)  
+**After**: Triage → Auto-Fix → PR (3 jobs, 1 AI call)
+
+### What Changed
+
+1. **Merged planner + code into one agent** (`auto-fix-agent.js`)
+   - Direct approach: Issue → AI prompt → Apply changes → Commit
+   - Single AI call instead of two separate calls
+   - Faster and more reliable
+
+2. **Simplified workflow** (`.github/workflows/auto-fix.yml`)
+   - 3 jobs instead of 4
+   - Fewer artifacts to pass between jobs
+   - Fewer potential failure points
+
+3. **Better error handling**
+   - Clear error messages
+   - Automatic rollback on failure
+   - Helpful hints for common issues
+
+---
 
 ## Quick Fix: Add Anthropic API Key
 
@@ -22,22 +51,23 @@ The planner agent is failing because it can't access the AI API (GitHub Models o
 4. Value: Paste your API key
 5. Click "Add secret"
 
-### Step 3: Update Workflow to Use It
+### Step 3: Test the Simplified Workflow
 
-The workflow already supports `ANTHROPIC_API_KEY` - it will use it automatically once you add the secret.
+The workflow automatically uses the new simplified architecture. Once you add the API key:
 
-The agents check in this order:
-1. `ANTHROPIC_API_KEY` (if set) ← **ADD THIS**
-2. `OPENAI_API_KEY` (if set)
-3. `GITHUB_TOKEN` with GitHub Models (may not work yet)
+1. Create a new test issue:
 
-### Step 4: Re-run the Workflow
+```
+Title: Fix typo in README
 
-Once the secret is added:
-1. Go to: https://github.com/divyasonaraa/spec-demo/actions
-2. Find the failed run for issue #34
-3. Click "Re-run all jobs"
-4. ✅ Should work now!
+Body:
+There's a typo in README.md: "teh" should be "the"
+
+Affected Files:
+- README.md
+```
+
+2. Watch it auto-fix! Should complete in 1-2 minutes (faster than before!)
 
 ---
 
@@ -63,40 +93,30 @@ Using Anthropic or OpenAI API keys is more reliable for now.
 
 ---
 
-## Cost Estimate
+## Cost Estimate (Simplified Architecture)
 
 With Anthropic Claude Sonnet:
-- Triage: ~$0.01 per issue
-- Planner: ~$0.02 per issue
-- Code Agent: ~$0.03 per issue
-- **Total: ~$0.06 per auto-fixed issue**
+- Triage: ~$0.01 per issue (keyword-based, rarely needs AI)
+- Auto-Fix: ~$0.03 per issue (single AI call)
+- **Total: ~$0.04 per auto-fixed issue** ← Cheaper than before!
 
 Very affordable for occasional use!
 
 ---
 
-## Test After Adding Key
+## Benefits of Simplified Architecture
 
-1. Close issue #34 (to reset state)
-2. Create a new test issue:
-
-```
-Title: Fix typo in README
-
-Body:
-There's a typo in README.md: "teh" should be "the"
-
-Affected Files:
-- README.md
-```
-
-3. Watch it auto-fix! Should complete in 2-3 minutes.
+✅ **Simpler**: 3 jobs instead of 4  
+✅ **Faster**: 1 AI call instead of 2  
+✅ **More reliable**: Fewer failure points  
+✅ **Cheaper**: ~33% cost reduction  
+✅ **Easier to debug**: Direct flow with clear errors
 
 ---
 
 ## Need Help?
 
 If you don't want to add an API key, you can:
-1. Use the manual fix I created (PR #35)
+1. Use the manual fix approach (create issues, get manual PRs)
 2. Wait for GitHub Models to be fully available
 3. Let me know and I can help debug GitHub Models further

@@ -21,7 +21,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Environment variables
 const ISSUE_NUMBER = process.env.ISSUE_NUMBER;
 const TRIAGE_RESULT_PATH = process.env.TRIAGE_RESULT_PATH || './triage-result.json';
-const FIX_PLAN_PATH = process.env.FIX_PLAN_PATH || './fix-plan.json';
 const COMMIT_RESULT_PATH = process.env.COMMIT_RESULT_PATH || './commit-result.json';
 const OUTPUT_PATH = process.env.OUTPUT_PATH || './pr-result.json';
 const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '30000', 10);
@@ -76,15 +75,13 @@ async function main() {
 async function runPRGeneration() {
   // Load all inputs
   const triageResult = JSON.parse(readFileSync(TRIAGE_RESULT_PATH, 'utf8'));
-  const fixPlanResult = JSON.parse(readFileSync(FIX_PLAN_PATH, 'utf8'));
   const commitResult = JSON.parse(readFileSync(COMMIT_RESULT_PATH, 'utf8'));
   
-  if (!triageResult.success || !fixPlanResult.success || !commitResult.success) {
+  if (!triageResult.success || !commitResult.success) {
     throw new AutoFixError('INVALID_INPUT', 'One or more input artifacts indicate failure');
   }
   
   const triage = triageResult.data;
-  const fixPlan = fixPlanResult.data;
   const commits = commitResult.data;
   
   // Get GitHub client
@@ -100,8 +97,14 @@ async function runPRGeneration() {
   
   console.log(`[PR Generator] Creating PR for: ${issue.title}`);
   
+  // Extract branch name from commit result
+  const branchName = commits[0]?.branch_name;
+  if (!branchName) {
+    throw new AutoFixError('INVALID_INPUT', 'Branch name not found in commit result');
+  }
+  
   // Check if PR already exists
-  const existingPR = await findExistingPR(github, owner, repo, fixPlan.branch_name);
+  const existingPR = await findExistingPR(github, owner, repo, branchName);
   if (existingPR) {
     console.log(`[PR Generator] PR already exists: #${existingPR}`);
     return {
@@ -117,9 +120,9 @@ async function runPRGeneration() {
   
   // Generate PR components
   const title = generatePRTitle(issue, triage.classification);
-  const body = generatePRBody(issue, triage, fixPlan, commits);
+  const body = generatePRBody(issue, triage, commits);
   const labels = selectPRLabels(triage);
-  const draft = shouldBeDraft(triage, fixPlan);
+  const draft = shouldBeDraft(triage);
   
   console.log(`[PR Generator] Title: ${title}`);
   console.log(`[PR Generator] Draft: ${draft}`);
@@ -127,7 +130,8 @@ async function runPRGeneration() {
   
   // Fetch CODEOWNERS for reviewer suggestions
   const codeowners = await fetchCodeowners(github, owner, repo);
-  const suggestedReviewers = determineSuggestedReviewers(fixPlan.file_changes, codeowners);
+  const filesChanged = commits[0]?.files_changed || [];
+  const suggestedReviewers = determineSuggestedReviewers(filesChanged, codeowners);
   
   // Create PR via GitHub API
   const prNumber = await createPullRequest(
@@ -136,7 +140,7 @@ async function runPRGeneration() {
     repo,
     title,
     body,
-    fixPlan.branch_name,
+    branchName,
     DEFAULT_BRANCH,
     draft
   );
@@ -165,7 +169,7 @@ async function runPRGeneration() {
     number: prNumber,
     issue_number: issue.number,
     title,
-    branch_name: fixPlan.branch_name,
+    branch_name: branchName,
     base_branch: DEFAULT_BRANCH,
     status: 'OPEN',
     commits: commits.map(c => c.sha),
@@ -211,16 +215,17 @@ function generatePRTitle(issue, classification) {
 /**
  * Generate PR body with all required sections
  */
-function generatePRBody(issue, triage, fixPlan, commits) {
+function generatePRBody(issue, triage, commits) {
   let body = `## Summary\n\n`;
   body += `Fixes #${issue.number}\n\n`;
   body += `${issue.title}\n\n`;
   
   // What Changed
   body += `## What Changed\n\n`;
-  if (fixPlan.file_changes.length > 0) {
-    fixPlan.file_changes.forEach(fc => {
-      body += `- \`${fc.path}\`: ${fc.change_summary}\n`;
+  const filesChanged = commits[0]?.files_changed || [];
+  if (filesChanged.length > 0) {
+    filesChanged.forEach(file => {
+      body += `- \`${file}\`\n`;
     });
   } else {
     body += `No file changes recorded.\n`;
@@ -237,15 +242,16 @@ function generatePRBody(issue, triage, fixPlan, commits) {
   // Manual Verification
   body += `## Manual Verification\n\n`;
   body += `To verify this fix:\n\n`;
-  body += `1. Check out this PR branch: \`git checkout ${fixPlan.branch_name}\`\n`;
-  body += `2. Review the changes in: ${fixPlan.file_changes.map(fc => `\`${fc.path}\``).join(', ')}\n`;
-  body += `3. ${generateVerificationSteps(triage.classification, fixPlan.file_changes)}\n\n`;
+  const branchName = commits[0]?.branch_name || 'fix-branch';
+  body += `1. Check out this PR branch: \`git checkout ${branchName}\`\n`;
+  body += `2. Review the changes in: ${filesChanged.map(f => `\`${f}\``).join(', ')}\n`;
+  body += `3. ${generateVerificationSteps(triage.classification, filesChanged)}\n\n`;
   
   // Risk Assessment
   body += `## Risk Assessment\n\n`;
   body += `**Risk Level**: ${triage.risk}\n`;
-  body += `**Affected Areas**: ${triage.affectedFiles.length > 0 ? triage.affectedFiles.join(', ') : 'None specified'}\n`;
-  body += `**Complexity**: ${fixPlan.estimated_duration ? `~${fixPlan.estimated_duration} minutes` : 'Simple'}\n\n`;
+  body += `**Affected Areas**: ${triage.affectedFiles?.length > 0 ? triage.affectedFiles.join(', ') : 'None specified'}\n`;
+  body += `**Complexity**: Simple\n\n`;
   
   // Security flags warning
   if (triage.securityFlags) {
@@ -255,11 +261,6 @@ function generatePRBody(issue, triage, fixPlan, commits) {
   // MEDIUM risk warning
   if (triage.risk === 'MEDIUM') {
     body += `⚠️ **MEDIUM RISK**: This PR requires maintainer review before merging.\n\n`;
-  }
-  
-  // Human check reason
-  if (fixPlan.human_check_reason) {
-    body += `**Review Required**: ${fixPlan.human_check_reason}\n\n`;
   }
   
   // Rollback Instructions
@@ -359,15 +360,12 @@ function selectPRLabels(triage) {
 /**
  * Determine if PR should be draft
  */
-function shouldBeDraft(triage, fixPlan) {
+function shouldBeDraft(triage) {
   // MEDIUM risk requires draft + human approval
   if (triage.risk === 'MEDIUM') return true;
   
-  // Large scope changes require review
-  if (fixPlan.file_changes.length > 5) return true;
-  
-  // Human check reason present
-  if (fixPlan.human_check_reason) return true;
+  // HIGH risk should never reach PR (blocked by triage), but safety check
+  if (triage.risk === 'HIGH') return true;
   
   return false;
 }
@@ -434,9 +432,9 @@ function determineSuggestedReviewers(fileChanges, codeowners) {
   const reviewers = new Set();
   
   // Match files against CODEOWNERS patterns
-  for (const change of fileChanges) {
+  for (const filePath of fileChanges) {
     for (const [pattern, owners] of Object.entries(codeowners)) {
-      if (matchesPattern(change.path, pattern)) {
+      if (matchesPattern(filePath, pattern)) {
         owners.forEach(o => reviewers.add(o));
       }
     }
