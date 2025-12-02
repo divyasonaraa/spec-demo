@@ -201,12 +201,12 @@ This feature uses GitHub Actions + Node.js structure (NOT Vue):
 
 ### Implementation for User Story 5
 
-- [ ] T068 [P] [US5] Implement draft mode logic in PR generator (risk=MEDIUM → draft=true)
-- [ ] T069 [P] [US5] Add draft mode warning in PR body for MEDIUM risk
-- [ ] T070 [US5] Ensure MEDIUM risk issues trigger human_check_reason in planner
-- [ ] T071 [US5] Add `needs-review` label for draft PRs
-- [ ] T072 [US5] Post comment on issue explaining MEDIUM risk requires review
-- [ ] T073 [US5] Test with multi-file change and API modification scenarios
+- [X] T068 [P] [US5] Implement draft mode logic in PR generator (risk=MEDIUM → draft=true)
+- [X] T069 [P] [US5] Add draft mode warning in PR body for MEDIUM risk
+- [X] T070 [US5] Ensure MEDIUM risk issues trigger human_check_reason in planner
+- [X] T071 [US5] Add `needs-review` label for draft PRs
+- [X] T072 [US5] Post comment on issue explaining MEDIUM risk requires review
+- [X] T073 [US5] Test with multi-file change and API modification scenarios
 
 **Checkpoint**: MEDIUM risk issues generate draft PRs with clear review requirements
 
