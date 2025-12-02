@@ -1,4 +1,4 @@
-# Feature Specification: Automated GitHub Issue Triage and Auto-Fix System
+Fix typo in README: 'teh' should be 'the'# Feature Specification: Automated GitHub Issue Triage and Auto-Fix System
 
 **Feature Branch**: `001-github-auto-fix`  
 **Created**: 2025-12-02  
