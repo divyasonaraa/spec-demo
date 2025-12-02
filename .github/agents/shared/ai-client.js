@@ -144,8 +144,9 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
       return data.choices[0].message.content;
     }
     
-    // GitHub Models (free) - uses OpenAI-compatible API
+    // GitHub Models (free) - uses Anthropic Claude via GitHub's proxy
     if (provider === 'github') {
+      // GitHub Models endpoint for Anthropic Claude
       const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
         method: 'POST',
         headers: {
@@ -153,7 +154,7 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           'Authorization': `Bearer ${client.token}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',  // Use gpt-4o instead of gpt-4o-mini for better results
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
