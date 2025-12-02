@@ -11,6 +11,7 @@
  * Output: TriageResult with classification, risk level, and auto-fix decision
  */
 
+import { writeFileSync } from 'fs';
 import { createGitHubClient, getIssue, postComment, addLabels } from './shared/github-client.js';
 import { createAIClient, classifyIssue } from './shared/ai-client.js';
 import { assessRisk, extractFilePaths } from './shared/risk-assessment.js';
@@ -357,8 +358,13 @@ async function main() {
       'Triage'
     );
     
-    // Output result as JSON
+    // Output result as JSON to stdout
     console.log(JSON.stringify(result, null, 2));
+    
+    // Write result to file for workflow artifact
+    const outputPath = process.env.OUTPUT_PATH || './triage-result.json';
+    writeFileSync(outputPath, JSON.stringify(result, null, 2));
+    console.error(`[Triage] Result written to ${outputPath}`);
     
     process.exit(0);
   } catch (error) {
