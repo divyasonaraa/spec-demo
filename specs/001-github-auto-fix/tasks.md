@@ -216,21 +216,21 @@ This feature uses GitHub Actions + Node.js structure (NOT Vue):
 
 **Purpose**: Error handling, rate limiting, monitoring, and edge case coverage
 
-- [ ] T074 [P] Implement GitHub API rate limit handling with exponential backoff
-- [ ] T075 [P] Add structured logging to all agents (JSON output to stderr)
-- [ ] T076 [P] Implement timeout handling for LLM API calls
-- [ ] T077 [P] Add retry logic for transient GitHub API failures
-- [ ] T078 Implement automation-failed label and comment on errors
-- [ ] T079 [P] Handle ambiguous issue classification (mark as OTHER, request clarification)
-- [ ] T080 [P] Handle validation failure with detailed error comment
+- [X] T074 [P] Implement GitHub API rate limit handling with exponential backoff
+- [X] T075 [P] Add structured logging to all agents (JSON output to stderr)
+- [X] T076 [P] Implement timeout handling for LLM API calls
+- [X] T077 [P] Add retry logic for transient GitHub API failures
+- [X] T078 Implement automation-failed label and comment on errors
+- [X] T079 [P] Handle ambiguous issue classification (mark as OTHER, request clarification)
+- [X] T080 [P] Handle validation failure with detailed error comment
 - [ ] T081 Handle merge conflicts in code agent with graceful degradation
-- [ ] T082 [P] Add workflow timeout limits (30s triage, 60s plan, 120s code, 30s PR)
-- [ ] T083 [P] Implement idempotency checks (skip if already processed, update if needed)
-- [ ] T084 Add workflow_dispatch trigger for manual testing
-- [ ] T085 Create quickstart documentation for repository setup
-- [ ] T086 Create label creation script or documentation
-- [ ] T087 Add cost monitoring and estimation logging
-- [ ] T088 Final end-to-end manual verification with diverse issue types
+- [X] T082 [P] Add workflow timeout limits (30s triage, 60s plan, 120s code, 30s PR)
+- [X] T083 [P] Implement idempotency checks (skip if already processed, update if needed)
+- [X] T084 Add workflow_dispatch trigger for manual testing
+- [X] T085 Create quickstart documentation for repository setup
+- [X] T086 Create label creation script or documentation
+- [X] T087 Add cost monitoring and estimation logging
+- [X] T088 Final end-to-end manual verification with diverse issue types
 
 **Checkpoint**: System handles edge cases, errors, and rate limits gracefully
 

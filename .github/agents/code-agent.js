@@ -66,6 +66,50 @@ async function main() {
       console.error('[Code Agent] Rollback failed:', rollbackError.message);
     }
 
+    // Try to post error comment to issue
+    try {
+      const github = getGitHubClient();
+      const [owner, repo] = GITHUB_REPOSITORY.split('/');
+      
+      let errorComment = `## ❌ Auto-Fix Failed: Code Generation\n\n`;
+      errorComment += `**Error**: ${error.message}\n\n`;
+      
+      if (error.code === 'VALIDATION_FAILED') {
+        errorComment += `### Validation Failure\n\n`;
+        errorComment += `The automated fix was generated but failed validation checks:\n\n`;
+        if (error.details?.output) {
+          errorComment += `\`\`\`\n${error.details.output.slice(0, 1000)}\n\`\`\`\n\n`;
+        }
+        errorComment += `**Next Steps**:\n`;
+        errorComment += `- Review the validation error above\n`;
+        errorComment += `- The changes have been rolled back\n`;
+        errorComment += `- Manual fix may be required\n`;
+      } else {
+        errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n\n`;
+        errorComment += `The automation system encountered an error and has rolled back any changes.\n\n`;
+        errorComment += `A maintainer will need to investigate this issue manually.\n`;
+      }
+      
+      await github.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: ISSUE_NUMBER,
+        body: errorComment,
+      });
+      
+      // Add automation-failed label
+      await github.rest.issues.addLabels({
+        owner,
+        repo,
+        issue_number: ISSUE_NUMBER,
+        labels: ['automation-failed'],
+      });
+      
+      console.log('[Code Agent] Posted error comment and added automation-failed label');
+    } catch (commentError) {
+      console.error('[Code Agent] Failed to post error comment:', commentError.message);
+    }
+
     // Write error output to agents directory
     const errorResult = {
       success: false,

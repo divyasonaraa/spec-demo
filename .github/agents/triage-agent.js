@@ -17,6 +17,44 @@ import { createAIClient, classifyIssue } from './shared/ai-client.js';
 import { assessRisk, extractFilePaths } from './shared/risk-assessment.js';
 import { performSecurityCheck } from './shared/security-constraints.js';
 import { AutoFixError, ErrorCodes, formatErrorForComment, logError, withTimeout } from './shared/error-handler.js';
+import { createAgentLogger, logAgentSummary } from './shared/logger.js';
+import { trackAgentExecution } from './shared/timeout.js';
+
+const logger = createAgentLogger('triage-agent');
+
+/**
+ * Check if issue has already been triaged
+ * @param {Object} issue - GitHub issue object
+ * @returns {Object|null} - Previous triage result if found, null otherwise
+ */
+function checkIdempotency(issue) {
+  // Check for auto-triage label
+  const hasTriageLabel = issue.labels.some(label => label.name === 'auto-triage');
+  
+  // Check for existing classification labels
+  const classificationLabels = ['bug', 'feature', 'docs', 'chore'];
+  const hasClassification = issue.labels.some(label => 
+    classificationLabels.includes(label.name)
+  );
+  
+  // Check for risk labels
+  const riskLabels = ['low-risk', 'medium-risk', 'high-risk'];
+  const hasRisk = issue.labels.some(label => riskLabels.includes(label.name));
+  
+  if (hasTriageLabel && hasClassification && hasRisk) {
+    logger.info('Issue already triaged, skipping', {
+      issueNumber: issue.number,
+      labels: issue.labels.map(l => l.name),
+    });
+    
+    return {
+      alreadyProcessed: true,
+      labels: issue.labels.map(l => l.name),
+    };
+  }
+  
+  return null;
+}
 
 /**
  * Check if issue author is a bot
@@ -260,13 +298,10 @@ function formatTriageComment(triageResult) {
 async function triageIssue(owner, repo, issueNumber) {
   const startTime = Date.now();
   
-  console.error(JSON.stringify({
-    level: 'INFO',
-    message: 'Starting issue triage',
+  logger.startOperation('triageIssue', {
     repository: `${owner}/${repo}`,
     issueNumber,
-    timestamp: new Date().toISOString(),
-  }));
+  });
   
   // Initialize clients
   const githubClient = createGitHubClient();
@@ -275,15 +310,23 @@ async function triageIssue(owner, repo, issueNumber) {
   // Fetch issue details
   const issue = await getIssue(githubClient, owner, repo, issueNumber);
   
+  // Check if already triaged (idempotency)
+  const previousTriage = checkIdempotency(issue);
+  if (previousTriage) {
+    return {
+      success: true,
+      alreadyProcessed: true,
+      message: 'Issue already triaged',
+      labels: previousTriage.labels,
+    };
+  }
+  
   // Check if bot-created (skip processing)
   if (isBotCreated(issue)) {
-    console.error(JSON.stringify({
-      level: 'INFO',
-      message: 'Skipping bot-created issue',
+    logger.info('Skipping bot-created issue', {
       issueNumber,
       author: issue.user.login,
-      timestamp: new Date().toISOString(),
-    }));
+    });
     
     return {
       success: false,
@@ -368,12 +411,19 @@ async function main() {
       );
     }
     
-    // Execute with timeout (30 seconds)
-    const result = await withTimeout(
+    // Execute with timeout and tracking
+    const result = await trackAgentExecution(
       () => triageIssue(owner, repo, issueNumber),
-      30000,
-      'Triage'
+      'triage-agent'
     );
+    
+    // Log summary
+    logAgentSummary('triage-agent', {
+      success: result.success,
+      classification: result.data?.classification,
+      riskLevel: result.data?.risk?.level,
+      autoFixDecision: result.data?.autoFixDecision,
+    });
     
     // Output result as JSON to stdout
     console.log(JSON.stringify(result, null, 2));
@@ -381,7 +431,7 @@ async function main() {
     // Write result to file for workflow artifact
     const outputPath = process.env.OUTPUT_PATH || './triage-result.json';
     writeFileSync(outputPath, JSON.stringify(result, null, 2));
-    console.error(`[Triage] Result written to ${outputPath}`);
+    logger.info(`Result written to ${outputPath}`);
     
     process.exit(0);
   } catch (error) {
@@ -403,10 +453,16 @@ async function main() {
         
         // Add automation-failed label
         await addLabels(githubClient, owner, repo, issueNumber, ['automation-failed']);
+        
+        logger.info('Posted error comment and added automation-failed label', {
+          issueNumber,
+        });
       }
     } catch (commentError) {
       // Ignore errors posting error comment
-      console.error('Failed to post error comment:', commentError.message);
+      logger.error('Failed to post error comment', {
+        error: commentError.message,
+      });
     }
     
     process.exit(1);
