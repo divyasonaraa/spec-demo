@@ -92,6 +92,23 @@ async function runCodeGeneration() {
   
   console.log(`[Code Agent] Branch: ${fixPlan.branch_name}`);
   console.log(`[Code Agent] Files to modify: ${fixPlan.file_changes.length}`);
+
+  // Graceful early exit if no file changes (nothing to do)
+  if (fixPlan.file_changes.length === 0) {
+    console.log('[Code Agent] No file_changes provided; creating no-op result');
+    return {
+      success: true,
+      data: [{
+        issue_number: fixPlan.issue_number,
+        message: 'No changes required',
+        diff: '',
+        files_changed: [],
+        timestamp: new Date().toISOString(),
+        validation_results: [],
+        sha: null
+      }]
+    };
+  }
   
   // Get GitHub client
   const github = getGitHubClient();
@@ -433,9 +450,7 @@ function generateCommitMessage(issue, fixPlan) {
   const scope = firstFile.split('/')[0] || 'general';
   
   // Get type from classification
-  const type = classificationMap[fixPlan.file_changes[0]?.classification] || 
-               classificationMap[issue.labels?.find(l => ['BUG', 'FEATURE', 'DOCS', 'CHORE'].includes(l.name))?.name] ||
-               'fix';
+  const type = classificationMap[fixPlan.classification] || 'fix';
   
   // Create description (first 72 chars of title)
   const description = issue.title.slice(0, 72).toLowerCase();

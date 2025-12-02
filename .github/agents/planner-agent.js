@@ -120,6 +120,29 @@ async function runPlanner() {
   // Analyze file changes
   const fileChanges = await analyzeFileChanges(triage.affectedFiles || [], planSteps);
   console.log(`[Planner] Analyzed ${fileChanges.length} file changes`);
+
+  // Fallback: DOCS issues often target README.md; if no file changes inferred, attempt auto-detect
+  if (fileChanges.length === 0 && triage.classification === 'DOCS') {
+    try {
+      const repoRoot = join(__dirname, '..', '..');
+      const readmePath = join(repoRoot, 'README.md');
+      // Only add if README exists locally (workflow checks out repository)
+      const fs = await import('fs');
+      if (fs.existsSync(readmePath)) {
+        fileChanges.push({
+          path: 'README.md',
+          operation: 'MODIFY',
+          change_summary: 'Correct documentation typo(s) referenced in issue title/body',
+          line_range: null
+        });
+        console.log('[Planner] Fallback added README.md to file_changes for DOCS issue');
+      } else {
+        console.log('[Planner] README.md not found for DOCS fallback');
+      }
+    } catch (e) {
+      console.log('[Planner] Fallback detection error:', e.message);
+    }
+  }
   
   // Select validation commands
   const validationCommands = selectValidationCommands(
@@ -148,6 +171,7 @@ async function runPlanner() {
   const fixPlan = {
     issue_number: issue.number,
     branch_name: branchName,
+    classification: triage.classification,
     plan_steps: planSteps,
     file_changes: fileChanges,
     validation_commands: validationCommands,
@@ -444,9 +468,10 @@ async function loadProjectConventions(github, owner, repo) {
       'CHORE': 'chore',
       'OTHER': 'fix'
     },
-    lint_command: 'npm run lint',
-    type_check_command: 'npm run type-check',
-    build_command: 'npm run build',
+    // Commands will be populated only if scripts exist
+    lint_command: null,
+    type_check_command: null,
+    build_command: null,
     style_guide: 'standard'
   };
   
