@@ -81,8 +81,16 @@ async function main() {
  * Run code generation and validation
  */
 async function runCodeGeneration() {
-  // Load fix plan
-  const fixPlanResult = JSON.parse(readFileSync(FIX_PLAN_PATH, 'utf8'));
+  // Capture agents dir & compute repo root; adjust working directory for git operations
+  const agentsDir = __dirname; // .github/agents
+  const repoRoot = join(__dirname, '..', '..');
+
+  // Resolve absolute paths for inputs before chdir
+  const fixPlanAbs = join(agentsDir, FIX_PLAN_PATH);
+  const outputAbs = join(agentsDir, OUTPUT_PATH);
+
+  // Load fix plan (from agents dir)
+  const fixPlanResult = JSON.parse(readFileSync(fixPlanAbs, 'utf8'));
 
   if (!fixPlanResult.success) {
     throw new AutoFixError('INVALID_INPUT', 'Fix plan indicates failure');
@@ -110,6 +118,14 @@ async function runCodeGeneration() {
     };
   }
 
+  // Change to repo root for all git operations & patch application
+  try {
+    process.chdir(repoRoot);
+    console.log('[Code Agent] Changed working directory to repo root');
+  } catch (e) {
+    throw new AutoFixError('CHDIR_FAILED', `Failed to change directory to repo root: ${e.message}`);
+  }
+
   // Get GitHub client
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
@@ -135,20 +151,40 @@ async function runCodeGeneration() {
   for (const fileChange of fixPlan.file_changes) {
     console.log(`[Code Agent] Processing ${fileChange.path} (${fileChange.operation})`);
 
-    // Fetch current file content
+    // Fetch current file content (Baseline from default branch)
     const currentContent = await fetchFileContent(github, owner, repo, fileChange.path, DEFAULT_BRANCH);
 
-    // Generate diff using AI
-    const diff = await generateDiff(fileChange, currentContent, issue, fixPlan, styleConfig);
-    allDiffs.push({ path: fileChange.path, diff });
+    // Fallback: simple DOCS typo correction for README.md when issue mentions 'typo'
+    const isDocsTypo = fixPlan.classification === 'DOCS' && /typo/i.test(issue.title) && fileChange.path === 'README.md';
+    let diff;
+    if (isDocsTypo) {
+      const updatedContent = applyDocsTypoReplacements(currentContent);
+      if (updatedContent !== currentContent) {
+        // Write updated content directly
+        writeFileSync(fileChange.path, updatedContent, 'utf8');
+        diff = buildFullFileDiff(fileChange.path, currentContent, updatedContent);
+        console.log('[Code Agent] ✓ Applied deterministic README.md typo fix without AI');
+      } else {
+        console.log('[Code Agent] No typo replacements performed; falling back to AI diff');
+        diff = await generateDiff(fileChange, currentContent, issue, fixPlan, styleConfig);
+        await applyDiff(diff, fileChange.path);
+      }
+    } else {
+      // Generate diff using AI
+      diff = await generateDiff(fileChange, currentContent, issue, fixPlan, styleConfig);
+      await applyDiff(diff, fileChange.path);
+    }
 
-    // Apply diff
-    await applyDiff(diff, fileChange.path);
+    allDiffs.push({ path: fileChange.path, diff });
   }
 
-  // Run validation commands
-  const validationResults = await runValidation(fixPlan.validation_commands);
-  console.log(`[Code Agent] ✓ All validations passed`);
+  // Run validation commands (may be empty)
+  const validationResults = await runValidation(fixPlan.validation_commands || []);
+  if ((fixPlan.validation_commands || []).length === 0) {
+    console.log('[Code Agent] No validation commands to run');
+  } else {
+    console.log('[Code Agent] ✓ All validations passed');
+  }
 
   // Generate conventional commit message
   const commitMessage = generateCommitMessage(issue, fixPlan);
@@ -505,6 +541,44 @@ async function rollback() {
   } catch (error) {
     console.error('[Code Agent] Rollback failed:', error.message);
   }
+}
+
+// Utility: apply common doc typos replacements
+function applyDocsTypoReplacements(content) {
+  const patterns = [
+    [/\bteh\b/g, 'the'],
+    [/\brecieve\b/g, 'receive'],
+    [/\boccured\b/g, 'occurred'],
+    [/\bseperate\b/g, 'separate'],
+    [/\bdefinately\b/g, 'definitely']
+  ];
+  let updated = content;
+  for (const [regex, replacement] of patterns) {
+    updated = updated.replace(regex, replacement);
+  }
+  return updated;
+}
+
+// Utility: build a unified diff for full-file replacement (minimal heuristic)
+function buildFullFileDiff(filePath, oldContent, newContent) {
+  const oldLines = oldContent.split(/\n/);
+  const newLines = newContent.split(/\n/);
+  const oldCount = oldLines.length;
+  const newCount = newLines.length;
+  const header = `--- a/${filePath}\n+++ b/${filePath}`;
+  const hunkHeader = `@@ -1,${oldCount} +1,${newCount} @@`;
+  const bodyLines = [];
+  for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+    const oldLine = oldLines[i];
+    const newLine = newLines[i];
+    if (oldLine === newLine) {
+      bodyLines.push(` ${oldLine !== undefined ? oldLine : ''}`);
+    } else {
+      if (oldLine !== undefined) bodyLines.push(`-${oldLine}`);
+      if (newLine !== undefined) bodyLines.push(`+${newLine}`);
+    }
+  }
+  return `${header}\n${hunkHeader}\n${bodyLines.join('\n')}`;
 }
 
 // Run main function
