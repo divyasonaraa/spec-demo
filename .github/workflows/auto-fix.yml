@@ -52,8 +52,8 @@ jobs:
           RESULT=$(node triage-agent.js)
           echo "$RESULT"
           
-          # Extract decision for workflow routing
-          DECISION=$(echo "$RESULT" | jq -r '.autoFixDecision // "HUMAN_REVIEW_REQUIRED"')
+          # Extract decision for workflow routing (result is wrapped in {success, data})
+          DECISION=$(echo "$RESULT" | jq -r '.data.autoFixDecision // "HUMAN_REVIEW_REQUIRED"')
           echo "decision=$DECISION" >> $GITHUB_OUTPUT
           
           # Store full result
