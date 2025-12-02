@@ -84,6 +84,9 @@ async function runPlanner() {
     throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
   }
   
+  // Ensure affectedFiles is an array
+  triage.affectedFiles = triage.affectedFiles || [];
+  
   // Get GitHub client
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
@@ -121,10 +124,10 @@ async function runPlanner() {
   // Select validation commands
   const validationCommands = selectValidationCommands(
     triage.risk,
-    triage.affected_files,
+    triage.affectedFiles,
     conventions
-  );
-  console.log(`[Planner] Validation: ${validationCommands.join(', ')}`);
+  ) || [];
+  console.log(`[Planner] Validation: ${validationCommands.length > 0 ? validationCommands.join(', ') : 'none'}`);
   
   // Evaluate human review need
   const humanCheckReason = evaluateHumanReviewNeed(
@@ -346,6 +349,9 @@ function estimateLineRange(path, steps) {
  */
 function selectValidationCommands(risk, affectedFiles, conventions) {
   const commands = [];
+  
+  // Ensure affectedFiles is an array
+  affectedFiles = affectedFiles || [];
   
   // Always lint
   if (conventions.lint_command) {
