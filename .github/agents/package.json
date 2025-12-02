@@ -1,0 +1,26 @@
+{
+  "name": "github-auto-fix-agents",
+  "version": "1.0.0",
+  "description": "AI-powered GitHub issue triage and auto-fix agents",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@octokit/rest": "^20.1.1",
+    "@octokit/webhooks-types": "^7.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "triage": "node triage-agent.js",
+    "planner": "node planner-agent.js",
+    "code": "node code-agent.js",
+    "pr": "node pr-generator.js"
+  }
+}

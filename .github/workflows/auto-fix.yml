@@ -1,0 +1,103 @@
+name: Auto-Fix GitHub Issues
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: number
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  triage:
+    name: Triage Issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      triage_result: ${{ steps.triage.outputs.result }}
+      auto_fix_decision: ${{ steps.triage.outputs.decision }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: .github/agents/package-lock.json
+      
+      - name: Install dependencies
+        run: |
+          cd .github/agents
+          npm ci
+      
+      - name: Run triage agent
+        id: triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          cd .github/agents
+          RESULT=$(node triage-agent.js)
+          echo "$RESULT"
+          
+          # Extract decision for workflow routing
+          DECISION=$(echo "$RESULT" | jq -r '.autoFixDecision // "HUMAN_REVIEW_REQUIRED"')
+          echo "decision=$DECISION" >> $GITHUB_OUTPUT
+          
+          # Store full result
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Upload triage result
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-result
+          path: |
+            .github/agents/triage-result.json
+          retention-days: 7
+        continue-on-error: true
+
+  # Placeholder for future phases
+  # These jobs will be added in Phase 4 (planner, code, pr)
+  
+  # planner:
+  #   name: Generate Fix Plan
+  #   runs-on: ubuntu-latest
+  #   needs: triage
+  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
+  #   steps:
+  #     - name: Placeholder
+  #       run: echo "Planner agent will be implemented in Phase 4"
+  
+  # code:
+  #   name: Generate Code Fix
+  #   runs-on: ubuntu-latest
+  #   needs: [triage, planner]
+  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
+  #   steps:
+  #     - name: Placeholder
+  #       run: echo "Code agent will be implemented in Phase 4"
+  
+  # pr:
+  #   name: Create Pull Request
+  #   runs-on: ubuntu-latest
+  #   needs: [triage, planner, code]
+  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
+  #   steps:
+  #     - name: Placeholder
+  #       run: echo "PR generator will be implemented in Phase 6"

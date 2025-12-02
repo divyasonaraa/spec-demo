@@ -1,0 +1,38 @@
+# CODEOWNERS Template for Auto-Fix System
+# 
+# This file assigns default reviewers for auto-generated PRs.
+# The PR generator agent will use this to suggest reviewers based on file paths.
+#
+# Format: <file-pattern> @username @team
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything (fallback)
+* @maintainer-team
+
+# Documentation changes
+*.md @docs-team
+docs/ @docs-team
+
+# Configuration files
+*.json @config-owners
+*.yaml @config-owners
+*.yml @config-owners
+
+# Source code by area (customize for your repository)
+# src/auth/ @security-team
+# src/api/ @backend-team
+# src/components/ @frontend-team
+# src/database/ @data-team
+
+# CI/CD and infrastructure
+.github/ @devops-team
+.github/workflows/ @devops-team
+
+# Security-sensitive files (require security team review)
+# .env.example @security-team
+# config/secrets/ @security-team
+
+# Package dependencies (require review)
+package.json @maintainer-team
+package-lock.json @maintainer-team
+yarn.lock @maintainer-team
