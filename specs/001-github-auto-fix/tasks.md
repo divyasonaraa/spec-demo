@@ -103,27 +103,27 @@ This feature uses GitHub Actions + Node.js structure (NOT Vue):
 
 ### Planning Sub-Story (US2A)
 
-- [ ] T026 [P] [US2] Create planner agent main file in `.github/agents/planner-agent.js`
-- [ ] T027 [P] [US2] Implement branch name generation (prefix + issue number + slug)
-- [ ] T028 [US2] Implement LLM-based plan step generation
-- [ ] T029 [US2] Implement file change analysis (CREATE/MODIFY/DELETE operations)
-- [ ] T030 [US2] Implement validation command selection based on risk and file types
-- [ ] T031 [US2] Implement human review check logic (MEDIUM risk, >5 files, COMPLEX)
-- [ ] T032 [US2] Create GitHub Actions workflow job for planner in `.github/workflows/auto-fix.yml`
+- [X] T026 [P] [US2] Create planner agent main file in `.github/agents/planner-agent.js`
+- [X] T027 [P] [US2] Implement branch name generation (prefix + issue number + slug)
+- [X] T028 [US2] Implement LLM-based plan step generation
+- [X] T029 [US2] Implement file change analysis (CREATE/MODIFY/DELETE operations)
+- [X] T030 [US2] Implement validation command selection based on risk and file types
+- [X] T031 [US2] Implement human review check logic (MEDIUM risk, >5 files, COMPLEX)
+- [X] T032 [US2] Create GitHub Actions workflow job for planner in `.github/workflows/auto-fix.yml`
 
 ### Code Generation Sub-Story (US2B)
 
-- [ ] T033 [P] [US2] Create code agent main file in `.github/agents/code-agent.js`
-- [ ] T034 [P] [US2] Implement git branch creation with idempotency check
-- [ ] T035 [US2] Implement LLM-based unified diff generation
-- [ ] T036 [US2] Implement patch application using `git apply --check` then `git apply`
-- [ ] T037 [US2] Implement validation runner (execute lint, type-check, build commands)
-- [ ] T038 [US2] Implement rollback logic on validation failure
-- [ ] T039 [US2] Implement conventional commit message generation
-- [ ] T040 [US2] Implement git commit and push operations
-- [ ] T041 [US2] Handle merge conflicts and permission errors gracefully
-- [ ] T042 [US2] Create GitHub Actions workflow job for code agent in `.github/workflows/auto-fix.yml`
-- [ ] T043 [US2] Test with docs typo, missing import, and validation failure scenarios
+- [X] T033 [P] [US2] Create code agent main file in `.github/agents/code-agent.js`
+- [X] T034 [P] [US2] Implement git branch creation with idempotency check
+- [X] T035 [US2] Implement LLM-based unified diff generation
+- [X] T036 [US2] Implement patch application using `git apply --check` then `git apply`
+- [X] T037 [US2] Implement validation runner (execute lint, type-check, build commands)
+- [X] T038 [US2] Implement rollback logic on validation failure
+- [X] T039 [US2] Implement conventional commit message generation
+- [X] T040 [US2] Implement git commit and push operations
+- [X] T041 [US2] Handle merge conflicts and permission errors gracefully
+- [X] T042 [US2] Create GitHub Actions workflow job for code agent in `.github/workflows/auto-fix.yml`
+- [X] T043 [US2] Test with docs typo, missing import, and validation failure scenarios
 
 **Checkpoint**: Auto-fix pipeline generates code changes, validates, and creates commits for LOW risk issues
 

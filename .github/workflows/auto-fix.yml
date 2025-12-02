@@ -70,32 +70,120 @@ jobs:
           retention-days: 7
         continue-on-error: true
 
-  # Placeholder for future phases
-  # These jobs will be added in Phase 4 (planner, code, pr)
+  planner:
+    name: Generate Fix Plan
+    runs-on: ubuntu-latest
+    needs: triage
+    if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX'
+    timeout-minutes: 2
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: |
+          cd .github/agents
+          npm install
+      
+      - name: Download triage result
+        uses: actions/download-artifact@v4
+        with:
+          name: triage-result
+          path: .github/agents/
+      
+      - name: Run planner agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          TRIAGE_RESULT_PATH: ./triage-result.json
+          OUTPUT_PATH: ./fix-plan.json
+        run: |
+          cd .github/agents
+          node planner-agent.js
+      
+      - name: Upload fix plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-plan
+          path: .github/agents/fix-plan.json
+          retention-days: 7
   
-  # planner:
-  #   name: Generate Fix Plan
-  #   runs-on: ubuntu-latest
-  #   needs: triage
-  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
-  #   steps:
-  #     - name: Placeholder
-  #       run: echo "Planner agent will be implemented in Phase 4"
+  code:
+    name: Generate Code Fix
+    runs-on: ubuntu-latest
+    needs: [triage, planner]
+    if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX'
+    timeout-minutes: 5
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git operations
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Install dependencies
+        run: |
+          cd .github/agents
+          npm install
+      
+      - name: Download triage result
+        uses: actions/download-artifact@v4
+        with:
+          name: triage-result
+          path: .github/agents/
+      
+      - name: Download fix plan
+        uses: actions/download-artifact@v4
+        with:
+          name: fix-plan
+          path: .github/agents/
+      
+      - name: Run code agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          FIX_PLAN_PATH: ./fix-plan.json
+          OUTPUT_PATH: ./commit-result.json
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          cd .github/agents
+          node code-agent.js
+      
+      - name: Upload commit result
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit-result
+          path: .github/agents/commit-result.json
+          retention-days: 7
   
-  # code:
-  #   name: Generate Code Fix
-  #   runs-on: ubuntu-latest
-  #   needs: [triage, planner]
-  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
-  #   steps:
-  #     - name: Placeholder
-  #       run: echo "Code agent will be implemented in Phase 4"
-  
+  # Placeholder for PR generator (Phase 6)
   # pr:
   #   name: Create Pull Request
   #   runs-on: ubuntu-latest
   #   needs: [triage, planner, code]
-  #   if: needs.triage.outputs.auto_fix_decision != 'HUMAN_REVIEW_REQUIRED'
+  #   if: needs.triage.outputs.auto_fix_decision == 'AUTO_FIX'
   #   steps:
   #     - name: Placeholder
   #       run: echo "PR generator will be implemented in Phase 6"

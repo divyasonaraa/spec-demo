@@ -59,9 +59,33 @@ export function createAIClient() {
 }
 
 /**
+ * Get AI client instance (alias for createAIClient for compatibility)
+ * @returns {Object} - AI client instance with helper methods
+ */
+export function getAIClient() {
+  const client = createAIClient();
+  
+  // Add generateText helper method
+  client.generateText = async function({ messages, temperature = 0.3, max_tokens = 2048 }) {
+    // Extract system and user messages
+    const systemMessage = messages.find(m => m.role === 'system')?.content || '';
+    const userMessage = messages.find(m => m.role === 'user')?.content || '';
+    
+    return await callAI(client, systemMessage, userMessage, max_tokens, temperature);
+  };
+  
+  return client;
+}
+
+/**
  * Call AI model with structured prompt
  * @param {Object} client - AI client
  * @param {string} systemPrompt - System instructions
+ * @param {string} userPrompt - User message
+ * @param {number} maxTokens - Maximum tokens to generate
+ * @param {number} temperature - Temperature for generation
+ * @returns {Promise<string>} - AI response text
+ */
 export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048, temperature = 0.3) {
   return retryWithBackoff(async () => {
     const provider = client.provider || 'anthropic';
@@ -122,11 +146,6 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
       ErrorCodes.CONFIG_ERROR
     );
   }, {
-    maxRetries: 3,
-    baseDelay: 2000,
-    maxDelay: 30000,
-  });
-} }, {
     maxRetries: 3,
     baseDelay: 2000,
     maxDelay: 30000,
