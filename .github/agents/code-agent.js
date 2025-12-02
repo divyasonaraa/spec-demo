@@ -34,6 +34,9 @@ async function main() {
   const startTime = Date.now();
   console.log(`[Code Agent] Starting for issue #${ISSUE_NUMBER}`);
 
+  // Resolve absolute output path BEFORE any chdir (in agents directory)
+  const outputAbsPath = join(__dirname, OUTPUT_PATH);
+
   try {
     // Set timeout
     const timeoutPromise = new Promise((_, reject) => {
@@ -44,8 +47,8 @@ async function main() {
     const resultPromise = runCodeGeneration();
     const result = await Promise.race([resultPromise, timeoutPromise]);
 
-    // Write output
-    writeFileSync(OUTPUT_PATH, JSON.stringify(result, null, 2));
+    // Write output to agents directory
+    writeFileSync(outputAbsPath, JSON.stringify(result, null, 2));
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[Code Agent] ✓ Completed in ${duration}s`);
@@ -62,7 +65,7 @@ async function main() {
       console.error('[Code Agent] Rollback failed:', rollbackError.message);
     }
 
-    // Write error output
+    // Write error output to agents directory
     const errorResult = {
       success: false,
       error: {
@@ -72,7 +75,7 @@ async function main() {
         recoverable: false
       }
     };
-    writeFileSync(OUTPUT_PATH, JSON.stringify(errorResult, null, 2));
+    writeFileSync(outputAbsPath, JSON.stringify(errorResult, null, 2));
     process.exit(1);
   }
 }
