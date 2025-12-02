@@ -118,7 +118,7 @@ async function runPlanner() {
   console.log(`[Planner] Generated ${planSteps.length} plan steps`);
   
   // Analyze file changes
-  const fileChanges = await analyzeFileChanges(triage.affected_files, planSteps);
+  const fileChanges = await analyzeFileChanges(triage.affectedFiles || [], planSteps);
   console.log(`[Planner] Analyzed ${fileChanges.length} file changes`);
   
   // Select validation commands
@@ -192,7 +192,7 @@ async function generatePlanSteps(issue, triage) {
 Issue #${issue.number}: ${issue.title}
 Details: ${issue.body || 'No additional details provided'}
 Classification: ${triage.classification}
-Affected Files: ${triage.affected_files.join(', ')}
+Affected Files: ${(triage.affectedFiles || []).join(', ') || 'None specified'}
 
 Generate 3-7 implementation steps. For each step, provide:
 1. order: Sequential number (1, 2, 3, ...)
@@ -264,6 +264,14 @@ Example format:
  * Analyze file changes to determine operations and summaries
  */
 async function analyzeFileChanges(affectedFiles, planSteps) {
+  // Ensure affectedFiles is an array
+  affectedFiles = affectedFiles || [];
+  
+  // If no affected files, return empty array
+  if (affectedFiles.length === 0) {
+    return [];
+  }
+  
   return affectedFiles.map(path => {
     // Determine operation based on plan step descriptions
     const operation = determineOperation(path, planSteps);
