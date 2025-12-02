@@ -80,8 +80,8 @@ async function runPlanner() {
   const triage = triageResult.data;
   
   // Validate auto-fix decision
-  if (triage.auto_fix_decision !== 'AUTO_FIX') {
-    throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.auto_fix_decision}`);
+  if (triage.autoFixDecision !== 'AUTO_FIX') {
+    throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
   }
   
   // Get GitHub client
