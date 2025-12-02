@@ -22,7 +22,7 @@ A powerful, type-safe form configuration engine built with Vue 3, TypeScript, an
 ### Developer Experience
 - **📚 Comprehensive Documentation** - Searchable docs with copy-paste examples
 - **✅ Config Validation** - Real-time validation with detailed error messages
-- **🔄 Live Preview** - See changes instantly in teh demo playground
+- **🔄 Live Preview** - See changes instantly in the demo playground
 - **📦 Sample Configs** - Pre-built examples for common use cases
 
 ## 🚀 Quick Start
@@ -38,7 +38,7 @@ npm run dev
 npm run build
 ```
 
-Visit `http://localhost:5173` to see teh demo.
+Visit `http://localhost:5173` to see the demo.
 
 ## 📖 Documentation
 
@@ -93,7 +93,7 @@ const myForm: FormConfig = {
 }
 ```
 
-### 2. Render teh Form
+### 2. Render the Form
 
 ```vue
 <template>
@@ -284,7 +284,7 @@ MIT
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read teh [Quickstart Guide](specs/001-form-config-generator/quickstart.md) for development setup and architecture details.
+Contributions are welcome! Please read the [Quickstart Guide](specs/001-form-config-generator/quickstart.md) for development setup and architecture details.
 
 ## 🔗 Related Documentation
 
