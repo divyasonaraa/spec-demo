@@ -14,21 +14,27 @@ import { AutoFixError, ErrorCodes } from './error-handler.js';
  * @returns {string} - 'anthropic', 'openai', or 'github'
  */
 function getAIProvider() {
-  // Prefer free GitHub Models if no paid API keys are set
-  if (process.env.GITHUB_TOKEN && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
-    return 'github';
-  }
+  // Prefer Anthropic if API key is set (most reliable)
   if (process.env.ANTHROPIC_API_KEY) {
+    console.error('[AI Client] Using Anthropic Claude');
     return 'anthropic';
   }
+  
+  // OpenAI as second choice
   if (process.env.OPENAI_API_KEY) {
+    console.error('[AI Client] Using OpenAI GPT-4');
     return 'openai';
   }
+  
+  // Fallback to GitHub Models (may not work in all repos)
   if (process.env.GITHUB_TOKEN) {
-    return 'github'; // Fallback to GitHub Models
+    console.error('[AI Client] Using GitHub Models (beta)');
+    console.error('[AI Client] Note: If this fails, add ANTHROPIC_API_KEY secret to your repo');
+    return 'github';
   }
+  
   throw new AutoFixError(
-    'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or use GitHub Models with GITHUB_TOKEN',
+    'No AI provider configured. Set ANTHROPIC_API_KEY (recommended), OPENAI_API_KEY, or use GitHub Models with GITHUB_TOKEN. See FIX_AUTOMATION.md for setup instructions.',
     ErrorCodes.CONFIG_ERROR
   );
 }

@@ -51,6 +51,15 @@ async function main() {
     } catch (error) {
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.error(`[Planner] ✗ Failed after ${duration}s:`, error.message);
+        
+        // Add helpful error messages
+        if (error.message.includes('AI provider') || error.message.includes('API')) {
+            console.error('[Planner] ❌ AI API Error - This usually means:');
+            console.error('[Planner]    1. GitHub Models not available (beta feature)');
+            console.error('[Planner]    2. No ANTHROPIC_API_KEY secret configured');
+            console.error('[Planner]    3. No OPENAI_API_KEY secret configured');
+            console.error('[Planner] 📖 See FIX_AUTOMATION.md for setup instructions');
+        }
 
         // Write error output
         const errorResult = {
@@ -58,7 +67,10 @@ async function main() {
             error: {
                 code: error.code || 'PLANNING_FAILED',
                 message: error.message,
-                details: error.details || {}
+                details: error.details || {},
+                helpfulHint: error.message.includes('AI provider') 
+                    ? 'Add ANTHROPIC_API_KEY secret to your repository. See FIX_AUTOMATION.md'
+                    : null
             }
         };
         writeFileSync(OUTPUT_PATH, JSON.stringify(errorResult, null, 2));
