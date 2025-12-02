@@ -14,6 +14,10 @@ import { AutoFixError, ErrorCodes } from './error-handler.js';
  * @returns {string} - 'anthropic', 'openai', or 'github'
  */
 function getAIProvider() {
+  // Prefer free GitHub Models if no paid API keys are set
+  if (process.env.GITHUB_TOKEN && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+    return 'github';
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     return 'anthropic';
   }
@@ -21,7 +25,7 @@ function getAIProvider() {
     return 'openai';
   }
   if (process.env.GITHUB_TOKEN) {
-    return 'github'; // GitHub Models uses GITHUB_TOKEN
+    return 'github'; // Fallback to GitHub Models
   }
   throw new AutoFixError(
     'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or use GitHub Models with GITHUB_TOKEN',
@@ -140,9 +144,40 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
       return data.choices[0].message.content;
     }
     
-    // GitHub Models fallback (OpenAI-compatible)
+    // GitHub Models (free) - uses OpenAI-compatible API
+    if (provider === 'github') {
+      const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${client.token}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          max_tokens: maxTokens,
+          temperature: temperature,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new AutoFixError(
+          `GitHub Models API error: ${error.error?.message || response.statusText}`,
+          ErrorCodes.AI_ERROR,
+          { status: response.status, error }
+        );
+      }
+      
+      const data = await response.json();
+      return data.choices[0].message.content;
+    }
+    
     throw new AutoFixError(
-      'GitHub Models not yet implemented. Use OpenAI or Anthropic API.',
+      'Unknown AI provider',
       ErrorCodes.CONFIG_ERROR
     );
   }, {
