@@ -274,6 +274,7 @@ async function triageIssue(owner, repo, issueNumber) {
     }));
     
     return {
+      success: false,
       skipped: true,
       reason: 'Bot-created issue',
     };
@@ -331,7 +332,11 @@ async function triageIssue(owner, repo, issueNumber) {
     timestamp: new Date().toISOString(),
   }));
   
-  return triageResult;
+  // Wrap result for consistent API response format
+  return {
+    success: true,
+    data: triageResult
+  };
 }
 
 /**
