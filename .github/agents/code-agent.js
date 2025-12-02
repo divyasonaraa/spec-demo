@@ -33,35 +33,35 @@ const DEFAULT_BRANCH = process.env.DEFAULT_BRANCH || 'main';
 async function main() {
   const startTime = Date.now();
   console.log(`[Code Agent] Starting for issue #${ISSUE_NUMBER}`);
-  
+
   try {
     // Set timeout
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new AutoFixError('TIMEOUT', 'Code agent timeout exceeded 120s')), TIMEOUT_MS);
     });
-    
+
     // Run code generation with timeout
     const resultPromise = runCodeGeneration();
     const result = await Promise.race([resultPromise, timeoutPromise]);
-    
+
     // Write output
     writeFileSync(OUTPUT_PATH, JSON.stringify(result, null, 2));
-    
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[Code Agent] ✓ Completed in ${duration}s`);
     process.exit(0);
-    
+
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[Code Agent] ✗ Failed after ${duration}s:`, error.message);
-    
+
     // Attempt rollback
     try {
       await rollback();
     } catch (rollbackError) {
       console.error('[Code Agent] Rollback failed:', rollbackError.message);
     }
-    
+
     // Write error output
     const errorResult = {
       success: false,
@@ -83,13 +83,13 @@ async function main() {
 async function runCodeGeneration() {
   // Load fix plan
   const fixPlanResult = JSON.parse(readFileSync(FIX_PLAN_PATH, 'utf8'));
-  
+
   if (!fixPlanResult.success) {
     throw new AutoFixError('INVALID_INPUT', 'Fix plan indicates failure');
   }
-  
+
   const fixPlan = fixPlanResult.data;
-  
+
   console.log(`[Code Agent] Branch: ${fixPlan.branch_name}`);
   console.log(`[Code Agent] Files to modify: ${fixPlan.file_changes.length}`);
 
@@ -109,58 +109,58 @@ async function runCodeGeneration() {
       }]
     };
   }
-  
+
   // Get GitHub client
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-  
+
   // Fetch issue details
   const { data: issue } = await github.rest.issues.get({
     owner,
     repo,
     issue_number: parseInt(ISSUE_NUMBER, 10)
   });
-  
+
   // Security pre-check
   securityPreCheck(fixPlan.file_changes);
-  
+
   // Fetch repository style config
   const styleConfig = await fetchStyleConfig(github, owner, repo);
-  
+
   // Create or checkout branch (idempotent)
   await createBranch(fixPlan.branch_name);
-  
+
   // Generate and apply changes for each file
   const allDiffs = [];
   for (const fileChange of fixPlan.file_changes) {
     console.log(`[Code Agent] Processing ${fileChange.path} (${fileChange.operation})`);
-    
+
     // Fetch current file content
     const currentContent = await fetchFileContent(github, owner, repo, fileChange.path, DEFAULT_BRANCH);
-    
+
     // Generate diff using AI
     const diff = await generateDiff(fileChange, currentContent, issue, fixPlan, styleConfig);
     allDiffs.push({ path: fileChange.path, diff });
-    
+
     // Apply diff
     await applyDiff(diff, fileChange.path);
   }
-  
+
   // Run validation commands
   const validationResults = await runValidation(fixPlan.validation_commands);
   console.log(`[Code Agent] ✓ All validations passed`);
-  
+
   // Generate conventional commit message
   const commitMessage = generateCommitMessage(issue, fixPlan);
-  
+
   // Commit changes
   const commitSha = await commitChanges(fixPlan.file_changes.map(fc => fc.path), commitMessage);
   console.log(`[Code Agent] Commit: ${commitSha}`);
-  
+
   // Push branch
   await pushBranch(fixPlan.branch_name);
   console.log(`[Code Agent] ✓ Pushed ${fixPlan.branch_name}`);
-  
+
   // Build commit result
   const commit = {
     issue_number: issue.number,
@@ -171,7 +171,7 @@ async function runCodeGeneration() {
     validation_results: validationResults,
     sha: commitSha
   };
-  
+
   return {
     success: true,
     data: [commit]
@@ -193,7 +193,7 @@ function securityPreCheck(fileChanges) {
     /docker-compose/,
     /kubernetes\//
   ];
-  
+
   for (const change of fileChanges) {
     for (const pattern of BLOCKED_PATTERNS) {
       if (pattern.test(change.path)) {
@@ -217,7 +217,7 @@ async function fetchStyleConfig(github, owner, repo) {
     end_of_line: 'lf',
     insert_final_newline: true
   };
-  
+
   try {
     // Try to fetch .editorconfig
     const { data: editorconfig } = await github.rest.repos.getContent({
@@ -225,19 +225,19 @@ async function fetchStyleConfig(github, owner, repo) {
       repo,
       path: '.editorconfig'
     });
-    
+
     const content = Buffer.from(editorconfig.content, 'base64').toString('utf8');
-    
+
     // Parse editorconfig (basic parsing)
     if (content.includes('indent_style = tab')) defaults.indent_style = 'tab';
     const sizeMatch = content.match(/indent_size = (\d+)/);
     if (sizeMatch) defaults.indent_size = parseInt(sizeMatch[1], 10);
-    
+
   } catch (error) {
     // .editorconfig not found, use defaults
     console.log('[Code Agent] Using default style config');
   }
-  
+
   return defaults;
 }
 
@@ -271,11 +271,11 @@ async function fetchFileContent(github, owner, repo, path, ref) {
       path,
       ref
     });
-    
+
     if (file.type !== 'file') {
       throw new Error(`Path ${path} is not a file`);
     }
-    
+
     return Buffer.from(file.content, 'base64').toString('utf8');
   } catch (error) {
     if (error.status === 404) {
@@ -291,7 +291,7 @@ async function fetchFileContent(github, owner, repo, path, ref) {
  */
 async function generateDiff(fileChange, currentContent, issue, fixPlan, styleConfig) {
   const ai = getAIClient();
-  
+
   const prompt = `You are an expert code editor. Generate a minimal unified diff to implement the requested change.
 
 CONTEXT:
@@ -338,18 +338,18 @@ OUTPUT (raw diff only, no formatting):`;
     temperature: 0.2,
     max_tokens: 3000
   });
-  
+
   // Clean up response (remove markdown code blocks if present)
   let diff = response.trim();
   if (diff.startsWith('```')) {
     diff = diff.replace(/```diff?\n?/g, '').replace(/```\s*$/g, '').trim();
   }
-  
+
   // Validate diff format
   if (!diff.startsWith('---') || !diff.includes('+++')) {
     throw new AutoFixError('INVALID_DIFF', 'Generated diff is not in valid unified diff format', { diff });
   }
-  
+
   return diff;
 }
 
@@ -361,7 +361,7 @@ async function applyDiff(diff, filePath) {
     // Write diff to temp file
     const patchFile = `/tmp/fix-${Date.now()}.patch`;
     writeFileSync(patchFile, diff);
-    
+
     // Check if patch can be applied
     try {
       execSync(`git apply --check "${patchFile}"`, { stdio: 'pipe' });
@@ -370,11 +370,11 @@ async function applyDiff(diff, filePath) {
         stderr: checkError.stderr?.toString()
       });
     }
-    
+
     // Apply patch
     execSync(`git apply "${patchFile}"`, { stdio: 'pipe' });
     console.log(`[Code Agent] ✓ Applied patch to ${filePath}`);
-    
+
   } catch (error) {
     if (error.code === 'INVALID_PATCH') {
       throw error;
@@ -388,18 +388,18 @@ async function applyDiff(diff, filePath) {
  */
 async function runValidation(commands) {
   const results = [];
-  
+
   for (const command of commands) {
     console.log(`[Code Agent] Running: ${command}`);
     const startTime = Date.now();
-    
+
     try {
-      const output = execSync(command, { 
+      const output = execSync(command, {
         stdio: 'pipe',
         encoding: 'utf8',
         timeout: 90000 // 90s timeout per command
       });
-      
+
       const duration = Date.now() - startTime;
       results.push({
         command,
@@ -408,9 +408,9 @@ async function runValidation(commands) {
         stderr: '',
         duration_ms: duration
       });
-      
+
       console.log(`[Code Agent] ✓ ${command} passed (${duration}ms)`);
-      
+
     } catch (error) {
       const duration = Date.now() - startTime;
       const result = {
@@ -420,16 +420,16 @@ async function runValidation(commands) {
         stderr: error.stderr?.slice(0, 1000) || error.message,
         duration_ms: duration
       };
-      
+
       results.push(result);
-      
+
       // Validation failed - trigger rollback
       throw new AutoFixError('VALIDATION_FAILED', `Validation command failed: ${command}`, {
         validation_results: results
       });
     }
   }
-  
+
   return results;
 }
 
@@ -444,17 +444,17 @@ function generateCommitMessage(issue, fixPlan) {
     'CHORE': 'chore',
     'OTHER': 'fix'
   };
-  
+
   // Determine scope from affected files
   const firstFile = fixPlan.file_changes[0]?.path || '';
   const scope = firstFile.split('/')[0] || 'general';
-  
+
   // Get type from classification
   const type = classificationMap[fixPlan.classification] || 'fix';
-  
+
   // Create description (first 72 chars of title)
   const description = issue.title.slice(0, 72).toLowerCase();
-  
+
   return `${type}(${scope}): ${description}\n\nFixes #${issue.number}`;
 }
 
@@ -465,10 +465,10 @@ async function commitChanges(filePaths, message) {
   try {
     // Stage files
     gitOps.stageFiles(process.cwd(), filePaths);
-    
+
     // Commit with message
     const sha = gitOps.createCommit(process.cwd(), message);
-    
+
     return sha;
   } catch (error) {
     throw new AutoFixError('GIT_COMMIT_FAILED', `Failed to commit: ${error.message}`);
@@ -493,14 +493,14 @@ async function pushBranch(branchName) {
  */
 async function rollback() {
   console.log('[Code Agent] Rolling back changes...');
-  
+
   try {
     // Reset working directory
     execSync('git reset --hard HEAD', { stdio: 'pipe' });
-    
+
     // Switch back to default branch
     execSync(`git checkout ${DEFAULT_BRANCH}`, { stdio: 'pipe' });
-    
+
     console.log('[Code Agent] ✓ Rollback complete');
   } catch (error) {
     console.error('[Code Agent] Rollback failed:', error.message);
