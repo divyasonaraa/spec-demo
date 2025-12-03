@@ -664,6 +664,22 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
     }
   }
 
+  // Keyword-based detection from issue content (even if files not listed)
+  const text = `${issueTitle} ${issueBody}`.toLowerCase();
+  const SENSITIVE_KEYWORDS = [
+    '.env', 'env ', 'env.', 'api key', 'apikey', 'secret', 'secrets',
+    'token', 'private key', 'id_rsa', 'pem', 'key file',
+    'production credentials', 'prod credentials', 'deploy token',
+    '.github/workflows', 'kubernetes', 'deployment'
+  ];
+  if (SENSITIVE_KEYWORDS.some(k => text.includes(k))) {
+    violations.push({
+      path: 'issue-content',
+      reason: 'Sensitive keywords detected in issue content',
+      patterns: SENSITIVE_KEYWORDS.filter(k => text.includes(k))
+    });
+  }
+
   // Block if violations found
   if (violations.length > 0) {
     console.error('[Auto-Fix] ⛔ Security violations detected:');
