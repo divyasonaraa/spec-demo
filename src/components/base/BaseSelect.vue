@@ -41,26 +41,58 @@
 </template>
 
 <script setup lang="ts">
-import type { BaseSelectProps } from '@/types/components'
+import { ref, watch, onMounted } from 'vue';
+import type { BaseSelectProps } from '@/types/components';
+import { fetchOptions } from '@/utils/api'; // Utility to fetch options from API
 
 withDefaults(defineProps<BaseSelectProps>(), {
     options: () => [],
     disabled: false,
     required: false,
     loading: false,
-})
+});
 
 const emit = defineEmits<{
-    'update:modelValue': [value: string | number]
-    blur: []
-}>()
+    'update:modelValue': [value: string | number];
+    blur: [];
+}>();
 
 const onChange = (event: Event) => {
-    const target = event.target as HTMLSelectElement
-    emit('update:modelValue', target.value)
-}
+    const target = event.target as HTMLSelectElement;
+    emit('update:modelValue', target.value);
+};
 
 const onBlur = () => {
-    emit('blur')
-}
+    emit('blur');
+};
+
+const options = ref<BaseSelectProps['options']>([]);
+const loading = ref(false);
+const error = ref<string | null>(null);
+
+const loadOptions = async () => {
+    loading.value = true;
+    error.value = null;
+
+    try {
+        const response = await fetchOptions(props.dataSourceConfig);
+        options.value = response;
+    } catch (err) {
+        error.value = 'Failed to load options. Please try again.';
+    } finally {
+        loading.value = false;
+    }
+};
+
+onMounted(() => {
+    if (props.dataSourceConfig) {
+        loadOptions();
+    }
+});
+
+watch(() => props.dataSourceConfig, (newConfig, oldConfig) => {
+    if (newConfig !== oldConfig) {
+        loadOptions();
+    }
+});
 </script>
