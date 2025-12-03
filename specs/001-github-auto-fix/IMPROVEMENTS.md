@@ -351,7 +351,368 @@ Total Budget:        8,000 tokens
 
 ---
 
-### 6. ✅ Dynamic File Discovery System
+### 6. ✅ Architecture-Aware Fix Generation (2025-12-03)
+
+**Problem**: AI was generating fixes that violated project architecture (e.g., adding data fetching code to presentational base components).
+
+**Root Cause**: The auto-fix agent analyzed `package.json` and file structure but never read the project's **specification documents** that define architectural rules.
+
+**Solution**: Implemented comprehensive specification document parsing and architecture validation.
+
+**Implementation**:
+
+#### ProjectAnalyzer Enhancements
+Now fetches and parses specification documents:
+- `ARCHITECTURE.md`, `SIMPLIFIED_ARCHITECTURE.md`
+- `specs/*/plan.md`, `specs/*/research.md`, `specs/*/data-model.md`
+
+```javascript
+// NEW: Specification context parsing
+async fetchSpecificationContext() {
+  const specPaths = [
+    'ARCHITECTURE.md',
+    'specs/001-form-config-generator/plan.md',
+    'specs/001-form-config-generator/research.md',
+    // ... more spec files
+  ];
+  
+  // Parse architectural rules from spec documents
+  specContext.architecture = this.parseArchitecturalRules(specContents);
+  specContext.componentRules = this.parseComponentRules(specContents);
+  specContext.dataFlow = this.parseDataFlowRules(specContents);
+  specContext.prohibitedPatterns = this.parseProhibitedPatterns(specContents);
+}
+```
+
+#### ArchitectureValidator Class (NEW)
+Validates AI-generated changes against project architecture:
+
+```javascript
+class ArchitectureValidator {
+  // Patterns that should NOT appear in base components
+  static DATA_FETCHING_PATTERNS = [
+    /import\s+.*(?:axios|fetch|api|http)/i,
+    /useDataSource|useFetch|useQuery|useApi/i,
+    /apiClient|httpClient/i,
+    // ...
+  ];
+
+  static validate(fileChanges, specContext) {
+    // Check if base components contain data fetching
+    // Check if services are imported in presentational components
+    // Ensure composables follow naming conventions
+  }
+}
+```
+
+#### Enhanced AI Prompts
+Now include architectural context:
+
+```markdown
+## Project Architecture (from specs)
+
+**⚠️ CRITICAL: Follow these architectural rules. Violations will be rejected.**
+
+### Data Flow & Layered Architecture
+- Data fetching: composables (useDataSource, etc.)
+- Base components: Presentational only, NO data fetching
+
+### Component Responsibilities
+**Base Components** (`src/components/base/`):
+- Are **dumb/presentational** components
+- Receive ALL data via props
+- **DO NOT** fetch data or contain business logic
+
+**Composables** (`src/composables/`):
+- Handle data fetching (useDataSource, etc.)
+- Manage complex state and business logic
+
+### ❌ PROHIBITED (Never Do)
+- Adding data fetching to base components
+- Importing services in presentational components
+```
+
+#### Validation Flow
+```
+AI generates fix
+    ↓
+ArchitectureValidator.validate(fileChanges, specContext)
+    ↓
+├─ ERROR violations → Reject fix, post detailed comment
+├─ WARNING violations → Log warning, continue
+└─ No violations → Apply changes
+```
+
+#### Error Comment for Architecture Violations
+When the AI generates code that violates architecture:
+
+```markdown
+## ❌ Auto-Fix Failed
+
+**Error**: Fix violates project architecture
+
+### ⚠️ Architecture Violation
+
+**ERROR**: Base component "src/components/base/BaseSelect.vue" contains data fetching code
+- File: `src/components/base/BaseSelect.vue`
+- Detail: Base components should be presentational only...
+- Suggestion: Move data fetching logic to a composable...
+
+### Project Architecture Rules
+- **Base Components**: Presentational only, NO data fetching
+- **Composables**: Handle data fetching, state management
+- **Orchestrators** (FormRenderer): Coordinate between layers
+
+See `specs/001-form-config-generator/plan.md` for full architecture details.
+```
+
+**Benefits**:
+- AI now understands WHERE code should go, not just WHAT to write
+- Prevents architectural drift from automated changes
+- Clear error messages guide manual fixes when automation fails
+- Specification documents become "living" architecture enforcement
+
+**Key Files Modified**:
+- `.github/agents/auto-fix-agent.js`:
+  - Added `fetchSpecificationContext()` method
+  - Added spec parsing methods (parseArchitecturalRules, parseComponentRules, etc.)
+  - Added `ArchitectureValidator` class
+  - Added architecture validation step before applying changes
+  - Enhanced error comments for architecture violations
+  - Added `architecture-review` label for violations
+
+---
+
+### 7. ✅ Modular Architecture System (2025-12-04)
+
+**Problem**: The initial architecture-aware implementation was embedded directly in `auto-fix-agent.js` with hardcoded patterns - not scalable or maintainable.
+
+**User Feedback**: "It seems like it's greedy and quick fix. I want scalable and more robust modular solution."
+
+**Solution**: Refactored architecture validation into a **plugin-based modular system** with separate, reusable modules.
+
+#### New Module Structure
+
+```
+.github/agents/shared/
+├── spec-parser.js          # Modular specification document parser
+├── architecture-rules.js   # Configurable rule definitions & registry
+├── architecture-validator.js # Plugin-based validation engine
+└── index.js                # Module exports
+```
+
+#### Module 1: SpecParser (`spec-parser.js`)
+
+**Purpose**: Parse specification documents to extract architectural rules.
+
+**Features**:
+- **Plugin-based extractors**: Add custom rule extractors without modifying core code
+- **Configurable spec paths**: Define where to look for specs per project
+- **Multiple rule types**: ARCHITECTURE, COMPONENT, PROHIBITED, REQUIRED, DATA_FLOW
+
+```javascript
+import { SpecParser } from './shared/spec-parser.js';
+
+const parser = new SpecParser();
+
+// Add custom rule extractor
+parser.addExtractor('custom', (content, path) => {
+  // Extract project-specific rules
+  return [{ type: 'CUSTOM', rule: '...', source: path }];
+});
+
+// Parse spec contents
+const context = parser.parse(specContents);
+// Returns: { hasSpecs, summary, rules: { architecture, component, prohibited, ... } }
+```
+
+**Built-in Extractors**:
+| Extractor | Detects |
+|-----------|---------|
+| architecture | Layer definitions, responsibilities, constraints |
+| component | Base component rules, composable patterns |
+| prohibited | "DO NOT", "NEVER", "MUST NOT" patterns |
+| required | "MUST", "ALWAYS", "REQUIRED" patterns |
+| dataFlow | Data fetching layer, presentation layer rules |
+
+#### Module 2: ArchitectureRules (`architecture-rules.js`)
+
+**Purpose**: Define, register, and manage architectural validation rules.
+
+**Features**:
+- **Rule classes**: Extensible base classes for different rule types
+- **Rule templates**: Pre-built rules for common patterns
+- **Rules registry**: Dynamic rule management with enable/disable
+
+**Rule Types**:
+```javascript
+import { 
+  PathPatternRule,   // Check patterns in files matching path
+  ImportRule,        // Check import statements
+  NamingRule,        // Check naming conventions
+  CompositeRule,     // Combine multiple rules
+  RuleTemplates      // Pre-built rule templates
+} from './shared/architecture-rules.js';
+
+// Use a template for presentational components
+const rule = RuleTemplates.presentationalComponent({
+  pathPattern: /\/components\/base\//,
+  componentType: 'Base components'
+});
+
+// Create custom rule
+const customRule = new PathPatternRule({
+  id: 'no-console-log',
+  name: 'No Console.log in Production',
+  pathPattern: /\.ts$/,
+  forbiddenPatterns: [/console\.log/],
+  severity: Severity.WARNING,
+  suggestion: 'Use a logger instead of console.log'
+});
+```
+
+**Built-in Templates**:
+| Template | Purpose |
+|----------|---------|
+| `presentationalComponent` | Ensure no data fetching in presentational components |
+| `serviceLayer` | Ensure no UI logic in services |
+| `composableNaming` | Ensure `use` prefix for composables/hooks |
+| `noDirectStoreImports` | Prevent components from importing stores directly |
+
+**Severity Levels**:
+- `ERROR`: Blocks auto-fix, requires human intervention
+- `WARNING`: Logs warning, continues processing
+- `INFO`: Informational only
+
+#### Module 3: ArchitectureValidator (`architecture-validator.js`)
+
+**Purpose**: Plugin-based validation engine for code changes.
+
+**Features**:
+- **Plugin architecture**: Add custom validators without modifying core
+- **Parallel validation**: Validate multiple files efficiently
+- **Rich results**: Grouped by file, rule, with suggestions
+
+```javascript
+import { createValidator, validateFiles } from './shared/architecture-validator.js';
+
+// Quick validation
+const result = await validateFiles(files, { specContext });
+
+// Custom validator with plugins
+const validator = createValidator();
+validator.use(new CustomValidatorPlugin());
+await validator.initialize(context);
+const result = await validator.validateChanges(changes, context);
+
+// Result has rich information
+console.log(result.passed);           // boolean
+console.log(result.violations);       // ERROR violations
+console.log(result.warnings);         // WARNING violations
+console.log(result.format());         // Formatted text output
+console.log(result.toMarkdown());     // GitHub-compatible markdown
+```
+
+**Built-in Plugins**:
+| Plugin | Validates |
+|--------|-----------|
+| `RuleBasedValidatorPlugin` | Validates against registered rules |
+| `DataFlowValidatorPlugin` | Validates data flow patterns |
+| `ContractValidatorPlugin` | Detects breaking changes to exports |
+
+#### Integration with auto-fix-agent.js
+
+```javascript
+// OLD: Inline, hardcoded validation
+class ArchitectureValidator {
+  static DATA_FETCHING_PATTERNS = [...]; // Hardcoded
+  static validate(changes, context) { ... } // Embedded logic
+}
+
+// NEW: Modular, extensible validation
+import { SpecParser } from './shared/spec-parser.js';
+import { createValidator } from './shared/architecture-validator.js';
+import { createDefaultRegistry } from './shared/architecture-rules.js';
+
+class ProjectAnalyzer {
+  constructor() {
+    this.specParser = new SpecParser(); // Modular parser
+  }
+  
+  async fetchSpecificationContext() {
+    const specContents = await this.discoverSpecFiles();
+    return this.specParser.parse(specContents); // Delegation
+  }
+}
+
+class ArchitectureValidator {
+  static async validate(fileChanges, specContext) {
+    const validator = createValidator();
+    const registry = createDefaultRegistry(framework);
+    registry.generateFromSpecs(specContext); // Dynamic rules
+    
+    await validator.initialize({ specContext, rulesRegistry: registry });
+    return validator.validateFiles(files, { specContext });
+  }
+}
+```
+
+#### Scalability Features
+
+| Feature | Benefit |
+|---------|---------|
+| **Plugin extractors** | Add custom spec parsing without modifying core |
+| **Rule templates** | Reuse common patterns across projects |
+| **Dynamic registry** | Load rules from config files or specs |
+| **Validator plugins** | Add custom validation logic as plugins |
+| **Framework detection** | Auto-configure rules based on detected framework |
+| **Configurable paths** | Project-specific spec file locations |
+
+#### Adding Custom Rules
+
+```javascript
+// In project root: .github/architecture-rules.json
+{
+  "rules": [
+    {
+      "template": "presentationalComponent",
+      "pathPattern": "/components/atoms/",
+      "componentType": "Atomic components"
+    },
+    {
+      "type": "path-pattern",
+      "id": "no-direct-api",
+      "pathPattern": "/components/",
+      "forbiddenPatterns": ["axios\\.get", "fetch\\("],
+      "suggestion": "Use composables for data fetching"
+    }
+  ]
+}
+```
+
+```javascript
+// Load custom rules
+const config = JSON.parse(readFileSync('.github/architecture-rules.json'));
+registry.loadFromConfig(config);
+```
+
+**Benefits of Modular Architecture**:
+- ✅ **Separation of Concerns**: Each module has single responsibility
+- ✅ **Extensibility**: Add new rules/extractors without modifying core
+- ✅ **Testability**: Modules can be tested independently
+- ✅ **Reusability**: Modules can be used in other projects
+- ✅ **Configurability**: Project-specific rules via config files
+- ✅ **Maintainability**: Changes isolated to specific modules
+
+**Key Files Created**:
+- `.github/agents/shared/spec-parser.js`: 403 lines
+- `.github/agents/shared/architecture-rules.js`: 500+ lines
+- `.github/agents/shared/architecture-validator.js`: 400+ lines
+- `.github/agents/shared/index.js`: Module exports
+
+---
+
+### 8. ✅ Dynamic File Discovery System
 
 **Problem**: Static file mappings couldn't adapt to different project structures.
 
