@@ -29,7 +29,7 @@ function log(level, message, metadata = {}) {
     timestamp: new Date().toISOString(),
     ...metadata,
   };
-  
+
   console.error(JSON.stringify(logEntry));
 }
 
@@ -292,12 +292,12 @@ export function createAgentLogger(agentName) {
     warn: (message, metadata = {}) => warn(message, { agent: agentName, ...metadata }),
     error: (message, metadata = {}) => error(message, { agent: agentName, ...metadata }),
     fatal: (message, metadata = {}) => fatal(message, { agent: agentName, ...metadata }),
-    
-    startOperation: (operation, metadata = {}) => 
+
+    startOperation: (operation, metadata = {}) =>
       startOperation(operation, { agent: agentName, ...metadata }),
-    completeOperation: (operation, startTime, metadata = {}) => 
+    completeOperation: (operation, startTime, metadata = {}) =>
       completeOperation(operation, startTime, { agent: agentName, ...metadata }),
-    failOperation: (operation, err, startTime, metadata = {}) => 
+    failOperation: (operation, err, startTime, metadata = {}) =>
       failOperation(operation, err, startTime, { agent: agentName, ...metadata }),
   };
 }

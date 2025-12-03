@@ -20,19 +20,19 @@ function getAIProvider() {
     console.error('[AI Client] Using GitHub Models (free via GITHUB_TOKEN)');
     return 'github';
   }
-  
+
   // PRIORITY 2: Anthropic (paid, but most reliable)
   if (process.env.ANTHROPIC_API_KEY) {
     console.error('[AI Client] Using Anthropic Claude');
     return 'anthropic';
   }
-  
+
   // PRIORITY 3: OpenAI (paid)
   if (process.env.OPENAI_API_KEY) {
     console.error('[AI Client] Using OpenAI GPT-4');
     return 'openai';
   }
-  
+
   throw new AutoFixError(
     'No AI provider configured. GITHUB_TOKEN should be automatically available in GitHub Actions. If not, set ANTHROPIC_API_KEY or OPENAI_API_KEY.',
     ErrorCodes.CONFIG_ERROR
@@ -45,20 +45,20 @@ function getAIProvider() {
  */
 export function createAIClient() {
   const provider = getAIProvider();
-  
+
   if (provider === 'anthropic') {
     return new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
   }
-  
+
   if (provider === 'openai') {
     return {
       provider: 'openai',
       apiKey: process.env.OPENAI_API_KEY,
     };
   }
-  
+
   // GitHub Models uses OpenAI-compatible API
   if (provider === 'github') {
     return {
@@ -74,16 +74,16 @@ export function createAIClient() {
  */
 export function getAIClient() {
   const client = createAIClient();
-  
+
   // Add generateText helper method
-  client.generateText = async function({ messages, temperature = 0.3, max_tokens = 2048 }) {
+  client.generateText = async function ({ messages, temperature = 0.3, max_tokens = 2048 }) {
     // Extract system and user messages
     const systemMessage = messages.find(m => m.role === 'system')?.content || '';
     const userMessage = messages.find(m => m.role === 'user')?.content || '';
-    
+
     return await callAI(client, systemMessage, userMessage, max_tokens, temperature);
   };
-  
+
   return client;
 }
 
@@ -99,7 +99,7 @@ export function getAIClient() {
 export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048, temperature = 0.3) {
   return retryWithBackoff(async () => {
     const provider = client.provider || 'anthropic';
-    
+
     if (provider === 'anthropic' || client.messages) {
       // Anthropic Claude API
       const response = await client.messages.create({
@@ -114,10 +114,10 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           },
         ],
       });
-      
+
       return response.content[0].text;
     }
-    
+
     if (provider === 'openai') {
       // OpenAI API
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -136,7 +136,7 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           temperature: temperature,
         }),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new AutoFixError(
@@ -145,11 +145,11 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           { status: response.status, error }
         );
       }
-      
+
       const data = await response.json();
       return data.choices[0].message.content;
     }
-    
+
     // GitHub Models (free) - uses Anthropic Claude via GitHub's proxy
     if (provider === 'github') {
       // GitHub Models endpoint for Anthropic Claude
@@ -169,7 +169,7 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           temperature: temperature,
         }),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new AutoFixError(
@@ -178,11 +178,11 @@ export async function callAI(client, systemPrompt, userPrompt, maxTokens = 2048,
           { status: response.status, error }
         );
       }
-      
+
       const data = await response.json();
       return data.choices[0].message.content;
     }
-    
+
     throw new AutoFixError(
       'Unknown AI provider',
       ErrorCodes.CONFIG_ERROR
@@ -226,14 +226,14 @@ ${body}
 Respond with JSON only.`;
 
   const response = await callAI(client, systemPrompt, userPrompt, 512, 0.1);
-  
+
   try {
     // Extract JSON from response (handle markdown code blocks)
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON found in response');
     }
-    
+
     return JSON.parse(jsonMatch[0]);
   } catch (error) {
     throw new AutoFixError(
@@ -281,13 +281,13 @@ Affected files: ${affectedFiles.length > 0 ? affectedFiles.join(', ') : 'Not spe
 Generate a step-by-step plan. Respond with JSON only.`;
 
   const response = await callAI(client, systemPrompt, userPrompt, 1024, 0.3);
-  
+
   try {
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON found in response');
     }
-    
+
     return JSON.parse(jsonMatch[0]);
   } catch (error) {
     throw new AutoFixError(
@@ -325,7 +325,7 @@ Rules:
 4. Follow the project's coding style
 5. Output ONLY the diff, no explanations`;
 
-  const planContext = planSteps.length > 0 
+  const planContext = planSteps.length > 0
     ? `\n\nPlan steps:\n${planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
     : '';
 
@@ -343,17 +343,17 @@ ${currentContent}
 Generate unified diff format only.`;
 
   const response = await callAI(client, systemPrompt, userPrompt, 2048, 0.2);
-  
+
   // Extract diff from response (might be in code block)
   const diffMatch = response.match(/```(?:diff)?\n([\s\S]*?)\n```/) || response.match(/^---.*$/m);
-  
+
   if (!diffMatch) {
     throw new AutoFixError(
       'AI did not generate valid diff format',
       ErrorCodes.AI_ERROR
     );
   }
-  
+
   return diffMatch[1] || response;
 }
 

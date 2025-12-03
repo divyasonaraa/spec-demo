@@ -21,43 +21,65 @@ This guide explains how to set up and deploy the automated GitHub issue triage a
 
 ```
 GitHub Issue Created
-  ↓ (webhook trigger)
-GitHub Actions Workflow
+  ↓
+Triage Agent (auto-runs)
+  ↓
+Issue classified and labeled
+  ↓
+**WAIT FOR APPROVAL LABEL** ← Human adds "auto-fix" or "auto-fix-approved" label
+  ↓ (only after label added)
+GitHub Actions Workflow Triggered
   ↓
 ┌─────────────────────────────────────────────────┐
-│ Job 1: Triage Agent                             │
+│ Prerequisites Check                             │
+│ - Verify auto-fix label is present             │
+│ - Block if missing approval                    │
+└─────────────────────────────────────────────────┘
+  ↓ (if approved)
+┌─────────────────────────────────────────────────┐
+│ Job 1: Triage Agent (re-validation)             │
 │ - Classify issue (BUG/FEATURE/DOCS/etc.)       │
 │ - Assess risk (LOW/MEDIUM/HIGH)                │
 │ - Check security constraints                    │
 │ - Output: TriageResult JSON                     │
 └─────────────────────────────────────────────────┘
-  ↓ (if auto_fix_decision === 'YES')
+  ↓ (if auto_fix_decision === 'AUTO_FIX' or 'DRAFT_PR')
 ┌─────────────────────────────────────────────────┐
-│ Job 2: Planner Agent                            │
-│ - Generate implementation plan                  │
-│ - Create branch name                            │
-│ - Identify file changes                         │
-│ - Output: FixPlan JSON                          │
-└─────────────────────────────────────────────────┘
-  ↓
-┌─────────────────────────────────────────────────┐
-│ Job 3: Code Agent                               │
-│ - Generate code changes (diffs)                 │
-│ - Apply via git patch                           │
+│ Job 2: Auto-Fix Agent (enhanced)                │
+│ - Fetch comprehensive project context          │
+│ - Load affected files + related dependencies   │
+│ - Generate production-quality fix with AI      │
+│ - Apply changes with proper error handling     │
 │ - Run validation (lint, type-check, build)     │
-│ - Create commit                                 │
+│ - Create commit with detailed message          │
 │ - Output: Commit[] JSON                         │
 └─────────────────────────────────────────────────┘
   ↓ (if validation passes)
 ┌─────────────────────────────────────────────────┐
-│ Job 4: PR Generator                             │
+│ Job 3: PR Generator                             │
 │ - Format comprehensive PR description           │
-│ - Create pull request                           │
+│ - Create pull request (draft if MEDIUM risk)   │
 │ - Apply labels                                  │
 │ - Request reviewers                             │
 │ - Output: PullRequest URL                       │
 └─────────────────────────────────────────────────┘
 ```
+
+## Key Changes
+
+### ✅ Conditional Triggering
+- Auto-fix **no longer runs automatically** when an issue is opened
+- Triage agent still runs immediately to classify and assess the issue
+- **Human approval required**: Add `auto-fix` or `auto-fix-approved` label to trigger the fix workflow
+- Provides human oversight gate before any code changes are made
+
+### ✅ Production-Quality Fixes
+- AI generates comprehensive fixes following senior developer best practices
+- Considers edge cases, error handling, and type safety
+- Follows project conventions and framework patterns (Vue 3 Composition API, React hooks, etc.)
+- Includes proper comments and maintains code consistency
+- Increased context (up to 8 related files) for better understanding
+- Lower temperature (0.1) for more reliable, consistent code generation
 
 ## Installation Steps
 

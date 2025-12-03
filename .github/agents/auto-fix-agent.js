@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 
 /**
- * Auto-Fix Agent - Simplified architecture combining planning and code generation
+ * Auto-Fix Agent - Production-grade automated code fix system
  * 
- * Direct approach: Issue → AI (generate fix) → Apply changes → Commit
+ * Architecture:
+ * - Dynamic file discovery (no hardcoded mappings)
+ * - AI-powered file inference using repository analysis
+ * - Scalable design with pluggable components
+ * - Comprehensive error handling and recovery
  * 
  * Input: TriageResult from triage agent
  * Output: Commit[] with diffs, validation results, commit SHAs
  */
 
-import { readFileSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { dirname, join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { getGitHubClient } from './shared/github-client.js';
@@ -21,35 +25,1492 @@ import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Environment variables
-const ISSUE_NUMBER = process.env.ISSUE_NUMBER;
-const TRIAGE_RESULT_PATH = process.env.TRIAGE_RESULT_PATH || './triage-result.json';
-const OUTPUT_PATH = process.env.OUTPUT_PATH || './commit-result.json';
-const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '90000', 10);
-const DEFAULT_BRANCH = process.env.DEFAULT_BRANCH || 'main';
+// ============================================================================
+// CONFIGURATION - Centralized & Environment-driven
+// ============================================================================
+
+const CONFIG = Object.freeze({
+  // Environment
+  issueNumber: process.env.ISSUE_NUMBER,
+  triageResultPath: process.env.TRIAGE_RESULT_PATH || './triage-result.json',
+  outputPath: process.env.OUTPUT_PATH || './commit-result.json',
+  timeoutMs: parseInt(process.env.TIMEOUT_MS || '120000', 10),
+  defaultBranch: process.env.DEFAULT_BRANCH || 'main',
+
+  // Limits - Configurable thresholds
+  maxFilesToFetch: parseInt(process.env.MAX_FILES || '10', 10),
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '100000', 10), // 100KB per file
+  maxTotalContext: parseInt(process.env.MAX_CONTEXT || '500000', 10), // 500KB total
+  maxTokens: parseInt(process.env.MAX_TOKENS || '8000', 10),
+
+  // AI Settings
+  temperature: parseFloat(process.env.AI_TEMPERATURE || '0.1'),
+
+  // File Discovery
+  searchDepth: parseInt(process.env.SEARCH_DEPTH || '4', 10),
+  excludePatterns: [
+    'node_modules', '.git', 'dist', 'build', 'coverage',
+    '.cache', '.next', '.nuxt', '__pycache__', 'vendor',
+    '.turbo', '.vercel', '.output', 'out', '.svelte-kit'
+  ],
+});
+
+// ============================================================================
+// FRAMEWORK DETECTION REGISTRY - Extensible Plugin Architecture
+// ============================================================================
 
 /**
- * Main entry point
+ * Framework detector registry - easily extensible
+ * Add new frameworks by appending to this array
  */
+const FRAMEWORK_DETECTORS = [
+  {
+    name: 'Vue.js',
+    detect: (deps) => deps['vue'] || deps['@vue/cli-service'] || deps['nuxt'],
+    getProjectType: (deps) => {
+      if (deps['nuxt']) return 'Nuxt';
+      if (deps['vite']) return 'Vite + Vue 3';
+      return 'Vue CLI';
+    },
+    filePatterns: {
+      components: /\.vue$/,
+      composables: /^use[A-Z].*\.(ts|js)$/,
+      stores: /store\.(ts|js)$|\.store\.(ts|js)$/,
+    },
+    conventions: {
+      componentDir: 'src/components',
+      composableDir: 'src/composables',
+      viewDir: 'src/views',
+      typeDir: 'src/types',
+      storeDir: 'src/stores',
+    },
+    promptAdditions: `
+**Vue.js Specific Requirements**:
+- Use Vue 3 Composition API with <script setup> syntax
+- Use TypeScript for type safety in .vue and .ts files
+- Follow Vue 3 best practices (reactive refs, computed, watch patterns)
+- Props should have TypeScript interfaces defined
+- Emits should be explicitly declared with defineEmits<>()
+- Use provide/inject for dependency injection when appropriate
+- DO NOT use Options API (no data(), methods, computed as object)
+- DO NOT create React components (no useState, useEffect, jsx/tsx syntax)
+- Handle reactivity properly (use .value for refs, avoid losing reactivity)`,
+  },
+  {
+    name: 'React',
+    detect: (deps) => deps['react'] || deps['react-dom'],
+    getProjectType: (deps) => {
+      if (deps['next']) return 'Next.js';
+      if (deps['gatsby']) return 'Gatsby';
+      if (deps['remix']) return 'Remix';
+      return 'React';
+    },
+    filePatterns: {
+      components: /\.(tsx|jsx)$/,
+      hooks: /^use[A-Z].*\.(ts|js)$/,
+    },
+    conventions: {
+      componentDir: 'src/components',
+      hookDir: 'src/hooks',
+      pageDir: 'src/pages',
+    },
+    promptAdditions: `
+**React Specific Requirements**:
+- Use functional components with hooks (no class components)
+- Follow React best practices (proper hook dependencies, memoization)
+- Use TypeScript for prop types and state
+- DO NOT create Vue components (no <template>, no ref(), no reactive())`,
+  },
+  {
+    name: 'Angular',
+    detect: (deps) => deps['@angular/core'],
+    getProjectType: () => 'Angular',
+    filePatterns: {
+      components: /\.component\.ts$/,
+      services: /\.service\.ts$/,
+      modules: /\.module\.ts$/,
+    },
+    conventions: {
+      componentDir: 'src/app',
+    },
+    promptAdditions: `
+**Angular Specific Requirements**:
+- Follow Angular style guide
+- Use standalone components where appropriate
+- Proper dependency injection
+- Use Angular signals/RxJS for state management`,
+  },
+  {
+    name: 'Svelte',
+    detect: (deps) => deps['svelte'],
+    getProjectType: (deps) => deps['@sveltejs/kit'] ? 'SvelteKit' : 'Svelte',
+    filePatterns: {
+      components: /\.svelte$/,
+    },
+    conventions: {
+      componentDir: 'src/lib',
+      routeDir: 'src/routes',
+    },
+    promptAdditions: `
+**Svelte Specific Requirements**:
+- Use Svelte 4/5 syntax
+- Reactive statements with $:
+- Proper event handling`,
+  },
+  {
+    name: 'Node.js',
+    detect: () => true, // Fallback - always matches
+    getProjectType: (deps) => {
+      if (deps['express']) return 'Express';
+      if (deps['fastify']) return 'Fastify';
+      if (deps['koa']) return 'Koa';
+      if (deps['nestjs'] || deps['@nestjs/core']) return 'NestJS';
+      return 'Node.js';
+    },
+    filePatterns: {
+      source: /\.(ts|js|mjs|cjs)$/,
+    },
+    conventions: {
+      sourceDir: 'src',
+    },
+    promptAdditions: `
+**Node.js Specific Requirements**:
+- Follow Node.js best practices
+- Proper error handling with try-catch
+- Use async/await over callbacks`,
+  }
+];
+
+// ============================================================================
+// CORE CLASSES - SOLID Principles Applied
+// ============================================================================
+
+/**
+ * Project context analyzer - discovers project structure dynamically
+ * Single Responsibility: Only analyzes project structure
+ */
+class ProjectAnalyzer {
+  constructor(github, owner, repo, ref) {
+    this.github = github;
+    this.owner = owner;
+    this.repo = repo;
+    this.ref = ref;
+    this.cache = new Map();
+  }
+
+  /**
+   * Analyze project and return comprehensive context
+   */
+  async analyze() {
+    console.log('[ProjectAnalyzer] Analyzing project structure...');
+
+    const [packageJson, structure] = await Promise.all([
+      this.fetchPackageJson(),
+      this.fetchProjectStructure()
+    ]);
+
+    const framework = this.detectFramework(packageJson);
+    const language = this.detectLanguage(packageJson);
+
+    console.log(`[ProjectAnalyzer] Detected: ${framework.name} (${language})`);
+    console.log(`[ProjectAnalyzer] Found ${structure.length} files/directories`);
+
+    return {
+      framework: framework.name,
+      frameworkConfig: framework,
+      projectType: framework.getProjectType(packageJson.dependencies || {}),
+      language,
+      dependencies: { ...packageJson.dependencies, ...packageJson.devDependencies },
+      scripts: packageJson.scripts || {},
+      structure,
+      conventions: framework.conventions,
+      filePatterns: framework.filePatterns,
+      promptAdditions: framework.promptAdditions,
+    };
+  }
+
+  async fetchPackageJson() {
+    const cacheKey = 'package.json';
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: 'package.json',
+        ref: this.ref
+      });
+      const result = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+      this.cache.set(cacheKey, result);
+      return result;
+    } catch {
+      return { dependencies: {}, devDependencies: {}, scripts: {} };
+    }
+  }
+
+  async fetchProjectStructure(path = '', depth = 0) {
+    if (depth > CONFIG.searchDepth) return [];
+
+    const cacheKey = `structure:${path}:${depth}`;
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path,
+        ref: this.ref
+      });
+
+      if (!Array.isArray(data)) return [];
+
+      const items = [];
+      const subDirPromises = [];
+
+      for (const item of data) {
+        // Skip excluded patterns
+        if (CONFIG.excludePatterns.some(p =>
+          item.name === p || item.path.includes(`/${p}/`)
+        )) {
+          continue;
+        }
+
+        if (item.type === 'dir') {
+          items.push({ type: 'dir', path: item.path, name: item.name });
+          // Collect subdirectory fetches for parallel execution
+          if (depth < CONFIG.searchDepth - 1) {
+            subDirPromises.push(
+              this.fetchProjectStructure(item.path, depth + 1)
+            );
+          }
+        } else if (item.type === 'file') {
+          items.push({
+            type: 'file',
+            path: item.path,
+            name: item.name,
+            size: item.size,
+            extension: extname(item.name)
+          });
+        }
+      }
+
+      // Fetch subdirectories in parallel
+      const subResults = await Promise.all(subDirPromises);
+      for (const subItems of subResults) {
+        items.push(...subItems);
+      }
+
+      this.cache.set(cacheKey, items);
+      return items;
+    } catch (error) {
+      console.warn(`[ProjectAnalyzer] Failed to fetch ${path}:`, error.message);
+      return [];
+    }
+  }
+
+  detectFramework(packageJson) {
+    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+    for (const detector of FRAMEWORK_DETECTORS) {
+      if (detector.detect(deps)) {
+        return detector;
+      }
+    }
+
+    // Return Node.js as fallback (last in array)
+    return FRAMEWORK_DETECTORS[FRAMEWORK_DETECTORS.length - 1];
+  }
+
+  detectLanguage(packageJson) {
+    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+    return deps['typescript'] ? 'TypeScript' : 'JavaScript';
+  }
+}
+
+/**
+ * Intelligent file finder - discovers relevant files dynamically
+ * Uses multiple strategies with scoring for best results
+ */
+class FileDiscovery {
+  constructor(projectContext, github, owner, repo, ref) {
+    this.context = projectContext;
+    this.github = github;
+    this.owner = owner;
+    this.repo = repo;
+    this.ref = ref;
+  }
+
+  /**
+   * Find files relevant to an issue using multiple strategies
+   * Returns files sorted by relevance score
+   */
+  async findRelevantFiles(issue, triage) {
+    console.log('[FileDiscovery] Starting file discovery...');
+
+    const issueText = `${issue.title} ${issue.body || ''}`;
+    const candidates = new Map(); // path -> { score, reasons }
+
+    // Strategy 1: Extract explicitly mentioned file paths (highest priority)
+    const explicitFiles = this.extractExplicitPaths(issue.body || '');
+    explicitFiles.forEach(f => this.addCandidate(candidates, f, 100, 'explicit mention'));
+    console.log(`[FileDiscovery] Strategy 1 (explicit): ${explicitFiles.length} files`);
+
+    // Strategy 2: Use triage affected files
+    (triage.affectedFiles || []).forEach(f =>
+      this.addCandidate(candidates, f, 90, 'triage analysis')
+    );
+    console.log(`[FileDiscovery] Strategy 2 (triage): ${(triage.affectedFiles || []).length} files`);
+
+    // Strategy 3: Semantic keyword matching from project structure
+    const keywordFiles = this.findBySemanticMatch(issueText);
+    keywordFiles.forEach(({ path, score, reason }) =>
+      this.addCandidate(candidates, path, score, reason)
+    );
+    console.log(`[FileDiscovery] Strategy 3 (semantic): ${keywordFiles.length} matches`);
+
+    // Strategy 4: Convention-based discovery
+    const conventionFiles = this.findByConventions(issueText);
+    conventionFiles.forEach(({ path, score }) =>
+      this.addCandidate(candidates, path, score, 'convention match')
+    );
+    console.log(`[FileDiscovery] Strategy 4 (conventions): ${conventionFiles.length} matches`);
+
+    // Strategy 5: AI-assisted file discovery for complex/ambiguous issues
+    if (candidates.size < 3) {
+      const aiFiles = await this.aiAssistedDiscovery(issue, triage);
+      aiFiles.forEach(f => this.addCandidate(candidates, f, 70, 'AI inference'));
+      console.log(`[FileDiscovery] Strategy 5 (AI): ${aiFiles.length} suggestions`);
+    }
+
+    // Strategy 6: Related files discovery (imports/dependencies)
+    const topCandidates = this.getTopCandidates(candidates, 5);
+    const relatedFiles = await this.findRelatedFiles(topCandidates);
+    relatedFiles.forEach(f =>
+      this.addCandidate(candidates, f, 30, 'import dependency')
+    );
+    console.log(`[FileDiscovery] Strategy 6 (related): ${relatedFiles.length} files`);
+
+    // Validate existence and apply limits
+    const validatedFiles = await this.validateAndLimit(
+      this.getTopCandidates(candidates, CONFIG.maxFilesToFetch * 2)
+    );
+
+    console.log(`[FileDiscovery] Final selection: ${validatedFiles.length} files`);
+    return validatedFiles;
+  }
+
+  /**
+   * Add candidate with score tracking
+   */
+  addCandidate(candidates, path, score, reason) {
+    if (!path || typeof path !== 'string') return;
+
+    const existing = candidates.get(path);
+    if (existing) {
+      existing.score += score;
+      existing.reasons.push(reason);
+    } else {
+      candidates.set(path, { score, reasons: [reason] });
+    }
+  }
+
+  /**
+   * Get top N candidates sorted by score
+   */
+  getTopCandidates(candidates, limit) {
+    return [...candidates.entries()]
+      .sort((a, b) => b[1].score - a[1].score)
+      .slice(0, limit)
+      .map(([path]) => path);
+  }
+
+  /**
+   * Extract file paths mentioned in issue body using multiple patterns
+   */
+  extractExplicitPaths(text) {
+    const patterns = [
+      // Full paths from src, lib, app, etc.
+      /(?:^|[\s`'"])((src|lib|app|components|pages|views|hooks|composables|utils|services|types|models|store|stores|api|config)\/[\w\-\/\.]+\.\w+)/gim,
+      // Vue/Svelte files
+      /[\s`'"]([\w\-\/]+\.(vue|svelte))/gi,
+      // TypeScript/JavaScript files
+      /[\s`'"]([\w\-\/]+\.(ts|tsx|js|jsx|mjs|cjs))/gi,
+      // Style files
+      /[\s`'"]([\w\-\/]+\.(css|scss|sass|less|styl))/gi,
+      // Config files
+      /[\s`'"]([\w\-\.]+\.(json|yaml|yml|toml))/gi,
+      // Markdown
+      /[\s`'"]([\w\-\/]+\.md)/gi,
+      // Files in backticks (common in issue descriptions)
+      /`([^`]+\.\w{2,5})`/g,
+    ];
+
+    const files = new Set();
+    for (const pattern of patterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        let path = match[1].replace(/^[`'"]+|[`'"]+$/g, '').trim();
+        // Skip invalid paths
+        if (path &&
+          !path.startsWith('.') &&
+          !path.includes('node_modules') &&
+          !path.includes('://') &&
+          path.length < 200) {
+          files.add(path);
+        }
+      }
+    }
+    return [...files];
+  }
+
+  /**
+   * Find files based on semantic matching of keywords
+   * More intelligent than simple substring matching
+   */
+  findBySemanticMatch(issueText) {
+    const results = [];
+    const structure = this.context.structure;
+    const keywords = this.extractKeywords(issueText);
+
+    for (const item of structure) {
+      if (item.type !== 'file') continue;
+      if (item.size > CONFIG.maxFileSize) continue;
+
+      let score = 0;
+      const reasons = [];
+      const pathLower = item.path.toLowerCase();
+      const nameLower = item.name.toLowerCase();
+      const nameWithoutExt = nameLower.replace(/\.\w+$/, '');
+
+      // Check if file matches framework patterns
+      for (const [type, pattern] of Object.entries(this.context.filePatterns || {})) {
+        if (pattern.test(item.name)) {
+          score += 5;
+          break;
+        }
+      }
+
+      // Check keyword matches with weighted scoring
+      for (const keyword of keywords) {
+        // Exact name match (highest weight)
+        if (nameWithoutExt === keyword) {
+          score += 50;
+          reasons.push(`exact name: ${keyword}`);
+        }
+        // Name contains keyword
+        else if (nameLower.includes(keyword)) {
+          score += 30;
+          reasons.push(`name contains: ${keyword}`);
+        }
+        // Path contains keyword (lower weight)
+        else if (pathLower.includes(keyword)) {
+          score += 15;
+          reasons.push(`path contains: ${keyword}`);
+        }
+      }
+
+      // Boost for convention directories
+      for (const [key, dir] of Object.entries(this.context.conventions || {})) {
+        if (item.path.startsWith(dir + '/')) {
+          score += 5;
+          break;
+        }
+      }
+
+      if (score > 0) {
+        results.push({
+          path: item.path,
+          score,
+          reason: reasons.join(', ') || 'pattern match'
+        });
+      }
+    }
+
+    return results.sort((a, b) => b.score - a.score).slice(0, 30);
+  }
+
+  /**
+   * Find files based on project conventions
+   */
+  findByConventions(issueText) {
+    const results = [];
+    const textLower = issueText.toLowerCase();
+    const conventions = this.context.conventions || {};
+
+    // Map keywords to convention directories
+    const keywordToConvention = {
+      'component': ['componentDir'],
+      'composable': ['composableDir'],
+      'hook': ['hookDir', 'composableDir'],
+      'view': ['viewDir', 'pageDir'],
+      'page': ['pageDir', 'viewDir'],
+      'type': ['typeDir'],
+      'store': ['storeDir'],
+      'service': ['serviceDir', 'sourceDir'],
+      'util': ['utilDir', 'sourceDir'],
+      'api': ['apiDir', 'sourceDir'],
+    };
+
+    for (const [keyword, convKeys] of Object.entries(keywordToConvention)) {
+      if (textLower.includes(keyword)) {
+        for (const convKey of convKeys) {
+          const dir = conventions[convKey];
+          if (dir) {
+            // Find all files in this convention directory
+            const filesInDir = this.context.structure
+              .filter(item =>
+                item.type === 'file' &&
+                item.path.startsWith(dir + '/') &&
+                item.size <= CONFIG.maxFileSize
+              )
+              .slice(0, 5);
+
+            filesInDir.forEach(f => {
+              results.push({ path: f.path, score: 20 });
+            });
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Extract meaningful keywords from issue text
+   * Filters out common words and extracts technical terms
+   */
+  extractKeywords(text) {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+      'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'to', 'of',
+      'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
+      'during', 'before', 'after', 'above', 'below', 'between', 'under',
+      'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where',
+      'why', 'how', 'all', 'each', 'few', 'more', 'most', 'other', 'some',
+      'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
+      'very', 'just', 'and', 'but', 'or', 'if', 'because', 'while', 'this',
+      'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+      'what', 'which', 'who', 'when', 'issue', 'bug', 'fix', 'error', 'problem',
+      'please', 'add', 'update', 'change', 'make', 'work', 'working', 'broken',
+      'doesn', 'don', 'won', 'isn', 'aren', 'wasn', 'weren', 'hasn', 'haven',
+      'hadn', 'doesn', 'didn', 'couldn', 'shouldn', 'wouldn', 'won', 'new',
+      'like', 'want', 'need', 'get', 'got', 'see', 'try', 'use', 'using',
+    ]);
+
+    // Extract regular words
+    const words = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s\-_]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w));
+
+    // Extract camelCase and PascalCase terms (e.g., useValidation, FormRenderer)
+    const camelCaseTerms = text.match(/[a-z]+[A-Z][a-zA-Z]*/g) || [];
+
+    // Extract hyphenated terms (e.g., form-renderer, base-button)
+    const hyphenatedTerms = text.match(/[a-z]+-[a-z]+(?:-[a-z]+)*/gi) || [];
+
+    // Extract snake_case terms
+    const snakeCaseTerms = text.match(/[a-z]+_[a-z]+(?:_[a-z]+)*/gi) || [];
+
+    const allTerms = [
+      ...words,
+      ...camelCaseTerms.map(t => t.toLowerCase()),
+      ...hyphenatedTerms.map(t => t.toLowerCase().replace(/-/g, '')),
+      ...snakeCaseTerms.map(t => t.toLowerCase().replace(/_/g, '')),
+    ];
+
+    return [...new Set(allTerms)];
+  }
+
+  /**
+   * Use AI to suggest relevant files for complex issues
+   * Fallback when other strategies don't find enough files
+   */
+  async aiAssistedDiscovery(issue, triage) {
+    try {
+      const ai = getAIClient();
+
+      // Create compact structure summary (only source files)
+      const sourceExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte'];
+      const fileList = this.context.structure
+        .filter(item =>
+          item.type === 'file' &&
+          sourceExtensions.some(ext => item.name.endsWith(ext))
+        )
+        .map(item => item.path)
+        .slice(0, 150)
+        .join('\n');
+
+      const prompt = `Analyze this GitHub issue and identify the most relevant files to fix it.
+
+Issue Title: ${issue.title}
+Issue Description: ${(issue.body || '').slice(0, 800)}
+Classification: ${triage.classification}
+Framework: ${this.context.framework}
+
+Available source files:
+${fileList}
+
+Instructions:
+1. Identify 3-5 files most likely to need changes
+2. Consider files that might import/depend on the affected code
+3. Prefer specific component/module files over generic utility files
+
+Return ONLY a valid JSON array of file paths. Example:
+["src/components/Form.vue", "src/composables/useValidation.ts"]
+
+JSON response:`;
+
+      const response = await ai.generateText({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 300
+      });
+
+      // Parse response - handle potential markdown wrapping
+      let jsonText = response.trim();
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\s*$/g, '').trim();
+      }
+
+      const files = JSON.parse(jsonText);
+      return Array.isArray(files) ? files.filter(f => typeof f === 'string') : [];
+    } catch (error) {
+      console.warn('[FileDiscovery] AI discovery failed:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Find related files by analyzing imports
+   * Discovers dependencies that should be included for context
+   */
+  async findRelatedFiles(filePaths) {
+    const relatedFiles = new Set();
+
+    for (const filePath of filePaths) {
+      try {
+        const content = await this.fetchFileContent(filePath);
+        if (!content) continue;
+
+        // Extract imports using multiple patterns
+        const importPatterns = [
+          // ES6 imports: import X from 'path'
+          /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g,
+          // CommonJS: require('path')
+          /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+          // Dynamic imports: import('path')
+          /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+          // Vue/Svelte components: defineAsyncComponent
+          /defineAsyncComponent\s*\(\s*\(\)\s*=>\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+        ];
+
+        for (const pattern of importPatterns) {
+          const matches = content.matchAll(pattern);
+          for (const match of matches) {
+            const importPath = match[1];
+
+            // Skip external packages
+            if (!importPath.startsWith('.') &&
+              !importPath.startsWith('@/') &&
+              !importPath.startsWith('~/') &&
+              !importPath.startsWith('#')) {
+              continue;
+            }
+
+            const resolvedPath = this.resolveImportPath(filePath, importPath);
+            if (resolvedPath && !filePaths.includes(resolvedPath)) {
+              relatedFiles.add(resolvedPath);
+            }
+          }
+        }
+      } catch (error) {
+        // Ignore errors for individual files
+      }
+    }
+
+    return [...relatedFiles];
+  }
+
+  /**
+   * Resolve import path to actual file path
+   */
+  resolveImportPath(fromFile, importPath) {
+    const fromDir = dirname(fromFile);
+    let resolved;
+
+    // Handle path aliases
+    if (importPath.startsWith('@/') || importPath.startsWith('~/')) {
+      resolved = importPath.replace(/^[@~]\//, 'src/');
+    } else if (importPath.startsWith('#/')) {
+      resolved = importPath.replace(/^#\//, '');
+    } else if (importPath.startsWith('.')) {
+      // Relative import
+      resolved = join(fromDir, importPath).replace(/\\/g, '/');
+      // Clean up path (remove ./ and resolve ../)
+      resolved = resolved.replace(/\/\.\//g, '/');
+    } else {
+      return null; // External package
+    }
+
+    // Try common extensions
+    const extensions = [
+      '', '.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte',
+      '/index.ts', '/index.tsx', '/index.js', '/index.jsx', '/index.vue'
+    ];
+
+    for (const ext of extensions) {
+      const fullPath = resolved.endsWith(ext) || ext === '' ? resolved + ext : resolved + ext;
+      const cleanPath = fullPath.replace(/\/+/g, '/');
+      if (this.context.structure.some(item => item.path === cleanPath)) {
+        return cleanPath;
+      }
+    }
+
+    return null;
+  }
+
+  async fetchFileContent(filePath) {
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: filePath,
+        ref: this.ref
+      });
+      return Buffer.from(data.content, 'base64').toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Validate file existence and apply limits
+   */
+  async validateAndLimit(candidates) {
+    const validFiles = [];
+    let totalSize = 0;
+
+    for (const path of candidates) {
+      if (validFiles.length >= CONFIG.maxFilesToFetch) break;
+      if (totalSize >= CONFIG.maxTotalContext) break;
+
+      // Check structure cache first
+      const fileInfo = this.context.structure.find(item => item.path === path);
+
+      if (fileInfo && fileInfo.type === 'file') {
+        if (fileInfo.size <= CONFIG.maxFileSize) {
+          validFiles.push(path);
+          totalSize += fileInfo.size;
+        }
+      } else {
+        // File not in cache, verify via API
+        try {
+          const { data } = await this.github.rest.repos.getContent({
+            owner: this.owner,
+            repo: this.repo,
+            path,
+            ref: this.ref
+          });
+
+          if (data.type === 'file' && data.size <= CONFIG.maxFileSize) {
+            validFiles.push(path);
+            totalSize += data.size;
+          }
+        } catch {
+          // File doesn't exist, skip
+        }
+      }
+    }
+
+    return validFiles;
+  }
+}
+
+/**
+ * Prompt builder - constructs AI prompts dynamically based on context
+ */
+class PromptBuilder {
+  constructor(projectContext) {
+    this.context = projectContext;
+  }
+
+  buildFixPrompt(issue, triage, conventions, fileContents) {
+    const sections = [
+      this.buildSystemContext(),
+      this.buildProjectContext(),
+      this.buildIssueContext(issue, triage),
+      this.buildFileContents(fileContents),
+      this.buildCodingStandards(conventions),
+      this.buildRequirements(),
+      this.buildOutputFormat(issue.number),
+    ];
+
+    return sections.join('\n\n');
+  }
+
+  buildSystemContext() {
+    return `You are a SENIOR SOFTWARE ENGINEER with 10+ years of experience. You write production-quality code that is:
+- Maintainable and follows best practices
+- Thoroughly considers edge cases and error handling
+- Consistent with existing codebase patterns
+- Well-structured with proper separation of concerns
+- Robust and handles all scenarios mentioned in the issue`;
+  }
+
+  buildProjectContext() {
+    const { framework, language, projectType, dependencies, promptAdditions } = this.context;
+
+    const depsPreview = Object.keys(dependencies || {})
+      .filter(d => !d.startsWith('@types/'))
+      .slice(0, 12)
+      .join(', ');
+
+    return `## Project Context
+- **Framework**: ${framework}
+- **Language**: ${language}
+- **Project Type**: ${projectType}
+- **Key Dependencies**: ${depsPreview}
+${promptAdditions || ''}`;
+  }
+
+  buildIssueContext(issue, triage) {
+    return `## Issue Context - READ CAREFULLY
+- **Issue #${issue.number}**: ${issue.title}
+- **Full Description**: 
+${issue.body || 'No additional details provided'}
+
+- **Classification**: ${triage.classification}
+- **Risk Level**: ${triage.risk}
+- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'Inferred from context'}`;
+  }
+
+  buildFileContents(fileContents) {
+    if (!fileContents || fileContents.length === 0) {
+      return '## Current File Contents\nERROR: No files provided - cannot proceed';
+    }
+
+    const formattedFiles = fileContents.map(fc => {
+      const ext = this.getLanguageForExtension(fc.path);
+      return `### File: ${fc.path}\n\`\`\`${ext}\n${fc.content}\n\`\`\``;
+    }).join('\n\n');
+
+    return `## Current File Contents (THESE ARE YOUR WORKING FILES)\n${formattedFiles}`;
+  }
+
+  buildCodingStandards(conventions) {
+    return `## Coding Standards (FOLLOW EXACTLY)
+- Indentation: ${conventions.indent_style === 'space' ? `${conventions.indent_size} spaces` : 'tabs'}
+- Line endings: ${conventions.end_of_line?.toUpperCase() || 'LF'}
+- Final newline: ${conventions.insert_final_newline !== false ? 'required' : 'optional'}
+- Code style: Match the existing style in each file exactly
+- Comments: Preserve existing comments, add new ones only for complex logic`;
+  }
+
+  buildRequirements() {
+    return `## REQUIREMENTS - CRITICAL
+1. **Understand the Root Cause**: Don't just patch symptoms. Understand WHY the issue exists.
+
+2. **Consider Edge Cases**:
+   - Null/undefined values
+   - Empty arrays/objects
+   - Invalid inputs (wrong types, out of bounds)
+   - Async timing issues and race conditions
+
+3. **Error Handling**: Add proper error handling:
+   - Try-catch blocks for risky operations
+   - Validation before processing
+   - Graceful degradation with informative messages
+
+4. **Type Safety** (TypeScript):
+   - Use proper types (avoid 'any')
+   - Define interfaces for complex objects
+   - Use union types appropriately
+
+5. **Code Quality**:
+   - No magic numbers (use named constants)
+   - Descriptive variable/function names
+   - Single responsibility principle
+   - DRY (Don't Repeat Yourself)
+
+6. **Complete the Fix**:
+   - Address ALL aspects mentioned in the issue
+   - No TODOs or half-implemented features
+   - Production-ready code
+
+7. **Consistency**:
+   - Match existing code patterns
+   - Same naming conventions
+   - Same import/export style`;
+  }
+
+  buildOutputFormat(issueNumber) {
+    return `## Output Format (JSON only, no markdown wrapper)
+{
+  "file_changes": [
+    {
+      "path": "path/to/file.ext",
+      "content": "COMPLETE FILE CONTENT - include ALL lines, not just changes",
+      "change_summary": "What changed, why, and edge cases considered"
+    }
+  ],
+  "commit_message": "type(scope): description\\n\\nDetailed explanation\\n\\nFixes #${issueNumber}"
+}
+
+**VALIDATIONS BEFORE RESPONDING**:
+✓ Does your fix address the ROOT CAUSE?
+✓ Have you considered edge cases?
+✓ Is error handling appropriate?
+✓ Does code match existing patterns?
+✓ Is the fix complete (no TODOs)?
+✓ Included ALL lines of each file?
+
+Generate the COMPLETE, PRODUCTION-READY fix:`;
+  }
+
+  getLanguageForExtension(filePath) {
+    const ext = extname(filePath).slice(1);
+    const langMap = {
+      vue: 'vue', ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+      json: 'json', md: 'markdown', css: 'css', scss: 'scss', sass: 'sass',
+      less: 'less', html: 'html', svelte: 'svelte', py: 'python', rb: 'ruby',
+      go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', swift: 'swift',
+      yaml: 'yaml', yml: 'yaml', toml: 'toml', xml: 'xml', sql: 'sql',
+    };
+    return langMap[ext] || ext;
+  }
+}
+
+/**
+ * Security validator - comprehensive security checks
+ * Blocks modifications to sensitive files
+ */
+class SecurityValidator {
+  static CRITICAL_PATTERNS = [
+    { pattern: /^\.env/, reason: 'Environment configuration file' },
+    { pattern: /\.env$/, reason: 'Environment configuration file' },
+    { pattern: /\.env\./, reason: 'Environment configuration file' },
+    { pattern: /config\/secrets\//, reason: 'Secrets directory' },
+    { pattern: /secrets?\.(json|yaml|yml|ts|js)$/, reason: 'Secrets file' },
+    { pattern: /\.pem$/, reason: 'Private key file' },
+    { pattern: /\.key$/, reason: 'Private key file' },
+    { pattern: /\.crt$/, reason: 'Certificate file' },
+    { pattern: /id_rsa/, reason: 'SSH private key' },
+    { pattern: /\.github\/workflows\//, reason: 'CI/CD workflow' },
+    { pattern: /deployment\//, reason: 'Deployment config' },
+    { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
+    { pattern: /kubernetes\//, reason: 'Kubernetes config' },
+    { pattern: /k8s\//, reason: 'Kubernetes config' },
+    { pattern: /terraform\//, reason: 'Infrastructure as Code' },
+    { pattern: /\.tf$/, reason: 'Terraform file' },
+    { pattern: /ansible\//, reason: 'Ansible config' },
+    { pattern: /vault/, reason: 'Vault config' },
+    { pattern: /credentials/, reason: 'Credentials file' },
+    { pattern: /\.aws\//, reason: 'AWS config' },
+    { pattern: /\.kube\//, reason: 'Kubernetes config' },
+  ];
+
+  static BLOCKED_CHANGE_TYPES = [
+    'DATABASE_MIGRATION',
+    'CI_CD_PIPELINE',
+    'INFRASTRUCTURE_CONFIG'
+  ];
+
+  static validate(affectedFiles, issueTitle = '', issueBody = '') {
+    const violations = [];
+
+    for (const filePath of affectedFiles) {
+      // Check shared security constraints
+      const fileMatches = checkSecurityFilePath(filePath);
+      if (fileMatches.length > 0) {
+        violations.push({
+          path: filePath,
+          reason: 'Security-sensitive file path',
+          patterns: fileMatches.map(m => m.pattern.source),
+        });
+      }
+
+      // Check critical patterns
+      for (const { pattern, reason } of this.CRITICAL_PATTERNS) {
+        if (pattern.test(filePath)) {
+          violations.push({ path: filePath, reason, pattern: pattern.source });
+          break; // One violation per file is enough
+        }
+      }
+    }
+
+    // Check risky change types
+    const riskyChanges = checkRiskyChangeTypes(
+      `${issueTitle} ${issueBody}`,
+      affectedFiles
+    );
+
+    for (const riskyChange of riskyChanges) {
+      if (this.BLOCKED_CHANGE_TYPES.includes(riskyChange.type)) {
+        violations.push({
+          path: 'multiple',
+          reason: `${riskyChange.type}: ${riskyChange.reason}`,
+          type: riskyChange.type,
+        });
+      }
+    }
+
+    return violations;
+  }
+}
+
+/**
+ * Validation runner - executes project validation commands
+ */
+class ValidationRunner {
+  static selectCommands(risk, affectedFiles, conventions) {
+    const commands = [];
+
+    if (conventions.lint_command) {
+      commands.push(conventions.lint_command);
+    }
+
+    const needsTypeCheck = affectedFiles.some(f =>
+      f.endsWith('.ts') || f.endsWith('.vue') || f.endsWith('.tsx')
+    );
+    if (needsTypeCheck && conventions.type_check_command) {
+      commands.push(conventions.type_check_command);
+    }
+
+    if ((risk === 'MEDIUM' || risk === 'HIGH') && conventions.build_command) {
+      commands.push(conventions.build_command);
+    }
+
+    // Filter out test commands (NO TESTING policy)
+    return commands.filter(c => !c.toLowerCase().includes('test'));
+  }
+
+  static async run(commands) {
+    const results = [];
+
+    for (const command of commands) {
+      console.log(`[Validation] Running: ${command}`);
+      const startTime = Date.now();
+
+      try {
+        const output = execSync(command, {
+          stdio: 'pipe',
+          encoding: 'utf8',
+          timeout: 90000,
+          maxBuffer: 10 * 1024 * 1024 // 10MB buffer
+        });
+
+        const duration = Date.now() - startTime;
+        results.push({
+          command,
+          exit_code: 0,
+          stdout: output.slice(0, 2000),
+          stderr: '',
+          duration_ms: duration
+        });
+
+        console.log(`[Validation] ✓ ${command} passed (${duration}ms)`);
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        results.push({
+          command,
+          exit_code: error.status || 1,
+          stdout: error.stdout?.slice(0, 2000) || '',
+          stderr: error.stderr?.slice(0, 2000) || error.message,
+          duration_ms: duration
+        });
+
+        throw new AutoFixError('VALIDATION_FAILED', `Validation failed: ${command}`, {
+          validation_results: results,
+          output: error.stderr?.toString() || error.message
+        });
+      }
+    }
+
+    return results;
+  }
+}
+
+// ============================================================================
+// MAIN AGENT CLASS
+// ============================================================================
+
+class AutoFixAgent {
+  constructor() {
+    this.github = getGitHubClient();
+    this.ai = getAIClient();
+    this.startTime = Date.now();
+  }
+
+  async run() {
+    const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+    const issueNumber = parseInt(CONFIG.issueNumber, 10);
+
+    console.log(`[Auto-Fix] Starting for issue #${issueNumber}`);
+
+    // Load triage result
+    const triage = this.loadTriageResult();
+
+    // Validate auto-fix decision
+    if (triage.autoFixDecision !== 'AUTO_FIX' && triage.autoFixDecision !== 'DRAFT_PR') {
+      throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
+    }
+
+    // Fetch issue details
+    const { data: issue } = await this.github.rest.issues.get({
+      owner, repo, issue_number: issueNumber
+    });
+
+    console.log(`[Auto-Fix] Processing: ${issue.title}`);
+    console.log(`[Auto-Fix] Classification: ${triage.classification}, Risk: ${triage.risk}`);
+
+    // Security pre-check
+    const violations = SecurityValidator.validate(
+      triage.affectedFiles || [],
+      issue.title,
+      issue.body || ''
+    );
+
+    if (violations.length > 0) {
+      console.error('[Auto-Fix] ⛔ Security violations:');
+      violations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
+      throw new AutoFixError('SECURITY_VIOLATION',
+        `Blocked: ${violations.length} security violation(s)`,
+        { violations }
+      );
+    }
+
+    // Change to repo root
+    const repoRoot = join(__dirname, '..', '..');
+    process.chdir(repoRoot);
+    console.log('[Auto-Fix] Working directory: repo root');
+
+    // Analyze project (dynamic discovery)
+    const analyzer = new ProjectAnalyzer(this.github, owner, repo, CONFIG.defaultBranch);
+    const projectContext = await analyzer.analyze();
+    console.log(`[Auto-Fix] Project: ${projectContext.framework} (${projectContext.language})`);
+
+    // Discover relevant files (dynamic, no hardcoded mappings)
+    const discovery = new FileDiscovery(projectContext, this.github, owner, repo, CONFIG.defaultBranch);
+    const filesToFetch = await discovery.findRelevantFiles(issue, triage);
+
+    if (filesToFetch.length === 0) {
+      throw new AutoFixError('NO_FILES_FOUND', 'Could not identify files to modify');
+    }
+
+    console.log(`[Auto-Fix] Files: ${filesToFetch.join(', ')}`);
+
+    // Fetch file contents
+    const fileContents = await this.fetchFiles(owner, repo, filesToFetch);
+    console.log(`[Auto-Fix] Fetched ${fileContents.length} files`);
+
+    // Generate branch name
+    const branchName = this.generateBranchName(issue.number, triage.classification, issue.title);
+    console.log(`[Auto-Fix] Branch: ${branchName}`);
+
+    // Create branch
+    await this.createBranch(branchName);
+
+    // Load conventions
+    const conventions = await this.loadConventions(owner, repo);
+
+    // Build prompt and generate fix
+    const promptBuilder = new PromptBuilder(projectContext);
+    const prompt = promptBuilder.buildFixPrompt(issue, triage, conventions, fileContents);
+
+    console.log('[Auto-Fix] Generating fix with AI...');
+    const { fileChanges, commitMessage } = await this.generateFix(prompt);
+    console.log(`[Auto-Fix] Generated ${fileChanges.length} file changes`);
+
+    // Apply changes
+    for (const change of fileChanges) {
+      await this.applyFileChange(change);
+    }
+
+    // Run validation
+    const validationCommands = ValidationRunner.selectCommands(
+      triage.risk,
+      fileChanges.map(fc => fc.path),
+      conventions
+    );
+
+    let validationResults = [];
+    if (validationCommands.length > 0) {
+      validationResults = await ValidationRunner.run(validationCommands);
+      console.log('[Auto-Fix] ✓ All validations passed');
+    } else {
+      console.log('[Auto-Fix] No validation commands configured');
+    }
+
+    // Commit and push
+    const commitSha = await this.commitAndPush(
+      fileChanges.map(fc => fc.path),
+      commitMessage,
+      branchName
+    );
+
+    return {
+      success: true,
+      data: [{
+        issue_number: issue.number,
+        branch_name: branchName,
+        message: commitMessage,
+        files_changed: fileChanges.map(fc => fc.path),
+        change_summaries: fileChanges.map(fc => ({
+          path: fc.path,
+          summary: fc.change_summary || 'Updated'
+        })),
+        timestamp: new Date().toISOString(),
+        validation_results: validationResults,
+        sha: commitSha
+      }]
+    };
+  }
+
+  loadTriageResult() {
+    const triageResultPath = join(__dirname, CONFIG.triageResultPath);
+    const triageResult = JSON.parse(readFileSync(triageResultPath, 'utf8'));
+
+    if (!triageResult.success) {
+      throw new AutoFixError('INVALID_INPUT', 'Triage result indicates failure');
+    }
+
+    return triageResult.data;
+  }
+
+  async fetchFiles(owner, repo, filePaths) {
+    const results = [];
+
+    // Fetch files in parallel for efficiency
+    const fetchPromises = filePaths.map(async (path) => {
+      try {
+        const { data } = await this.github.rest.repos.getContent({
+          owner, repo, path, ref: CONFIG.defaultBranch
+        });
+
+        if (data.type === 'file') {
+          return {
+            path,
+            content: Buffer.from(data.content, 'base64').toString('utf8')
+          };
+        }
+        return null;
+      } catch (error) {
+        if (error.status === 404) {
+          return { path, content: '' }; // New file
+        }
+        console.warn(`[Auto-Fix] Failed to fetch ${path}:`, error.message);
+        return null;
+      }
+    });
+
+    const fetchResults = await Promise.all(fetchPromises);
+    return fetchResults.filter(r => r !== null);
+  }
+
+  generateBranchName(issueNumber, classification, title) {
+    const prefixMap = {
+      BUG: 'fix', FEATURE: 'feature', DOCS: 'docs', CHORE: 'chore', OTHER: 'fix'
+    };
+
+    const prefix = prefixMap[classification] || 'fix';
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 5)
+      .join('-')
+      .substring(0, 50);
+
+    return `${prefix}/${issueNumber}-${slug}`;
+  }
+
+  async createBranch(branchName) {
+    try {
+      gitOps.checkoutBranch(process.cwd(), branchName);
+      console.log(`[Auto-Fix] Branch exists, checked out: ${branchName}`);
+    } catch {
+      console.log(`[Auto-Fix] Creating branch: ${branchName}`);
+      gitOps.createBranch(process.cwd(), branchName, CONFIG.defaultBranch);
+    }
+  }
+
+  async loadConventions(owner, repo) {
+    const conventions = {
+      indent_style: 'space',
+      indent_size: 2,
+      end_of_line: 'lf',
+      insert_final_newline: true,
+      lint_command: null,
+      type_check_command: null,
+      build_command: null
+    };
+
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner, repo, path: 'package.json'
+      });
+      const pkg = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+
+      if (pkg.scripts) {
+        if (pkg.scripts.lint) conventions.lint_command = 'npm run lint';
+        if (pkg.scripts['lint:fix']) conventions.lint_command = 'npm run lint:fix';
+        if (pkg.scripts['type-check']) conventions.type_check_command = 'npm run type-check';
+        if (pkg.scripts.typecheck) conventions.type_check_command = 'npm run typecheck';
+        if (pkg.scripts.build) conventions.build_command = 'npm run build';
+      }
+    } catch {
+      console.log('[Auto-Fix] Using default conventions');
+    }
+
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner, repo, path: '.editorconfig'
+      });
+      const content = Buffer.from(data.content, 'base64').toString('utf8');
+      if (content.includes('indent_style = tab')) conventions.indent_style = 'tab';
+      const sizeMatch = content.match(/indent_size\s*=\s*(\d+)/);
+      if (sizeMatch) conventions.indent_size = parseInt(sizeMatch[1], 10);
+    } catch {
+      // Use defaults
+    }
+
+    return conventions;
+  }
+
+  async generateFix(prompt) {
+    const response = await this.ai.generateText({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: CONFIG.temperature,
+      max_tokens: CONFIG.maxTokens
+    });
+
+    // Clean up response
+    let jsonText = response.trim();
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\s*$/g, '').trim();
+    }
+
+    let result;
+    try {
+      result = JSON.parse(jsonText);
+    } catch (error) {
+      throw new AutoFixError('INVALID_AI_OUTPUT', 'Failed to parse AI response', {
+        response: response.slice(0, 500)
+      });
+    }
+
+    if (!Array.isArray(result.file_changes) || result.file_changes.length === 0) {
+      throw new AutoFixError('INVALID_AI_OUTPUT', 'Missing file_changes array');
+    }
+
+    if (!result.commit_message) {
+      throw new AutoFixError('INVALID_AI_OUTPUT', 'Missing commit_message');
+    }
+
+    return {
+      fileChanges: result.file_changes,
+      commitMessage: result.commit_message
+    };
+  }
+
+  async applyFileChange(change) {
+    // Create directory if needed
+    const dir = dirname(change.path);
+    if (dir && dir !== '.' && !existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    writeFileSync(change.path, change.content, 'utf8');
+    console.log(`[Auto-Fix] ✓ Updated: ${change.path}`);
+  }
+
+  async commitAndPush(filePaths, message, branchName) {
+    gitOps.stageFiles(process.cwd(), filePaths);
+    const sha = gitOps.createCommit(process.cwd(), message);
+    console.log(`[Auto-Fix] Commit: ${sha}`);
+
+    gitOps.pushBranch(process.cwd(), branchName);
+    console.log(`[Auto-Fix] ✓ Pushed: ${branchName}`);
+
+    return sha;
+  }
+
+  async rollback() {
+    console.log('[Auto-Fix] Rolling back...');
+    try {
+      execSync('git reset --hard HEAD', { stdio: 'pipe' });
+      execSync(`git checkout ${CONFIG.defaultBranch}`, { stdio: 'pipe' });
+      console.log('[Auto-Fix] ✓ Rollback complete');
+    } catch (error) {
+      console.error('[Auto-Fix] Rollback failed:', error.message);
+    }
+  }
+
+  async postErrorComment(error) {
+    const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+    const issueNumber = parseInt(CONFIG.issueNumber, 10);
+
+    let comment = `## ❌ Auto-Fix Failed\n\n**Error**: ${error.message}\n\n`;
+
+    if (error.code === 'VALIDATION_FAILED') {
+      comment += `### Validation Failure\n\n`;
+      comment += `The fix failed validation checks:\n\n`;
+      if (error.details?.output) {
+        comment += `\`\`\`\n${error.details.output.slice(0, 1500)}\n\`\`\`\n\n`;
+      }
+      comment += `**Next Steps**: Review error and implement manually.\n`;
+    } else if (error.code === 'SECURITY_VIOLATION') {
+      comment += `### Security Block\n\n`;
+      comment += `This issue affects security-sensitive files.\n\n`;
+      if (error.details?.violations) {
+        comment += `**Violations**:\n`;
+        error.details.violations.slice(0, 5).forEach(v => {
+          comment += `- \`${v.path}\`: ${v.reason}\n`;
+        });
+      }
+      comment += `\n**Action Required**: Manual implementation needed.\n`;
+    } else if (error.code === 'NO_FILES_FOUND') {
+      comment += `### No Files Identified\n\n`;
+      comment += `Could not determine which files to modify.\n\n`;
+      comment += `**Tip**: Mention specific file paths in the issue description.\n`;
+    } else {
+      comment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n\n`;
+      comment += `Manual intervention required.\n`;
+    }
+
+    await this.github.rest.issues.createComment({
+      owner, repo, issue_number: issueNumber, body: comment
+    });
+
+    await this.github.rest.issues.addLabels({
+      owner, repo, issue_number: issueNumber, labels: ['automation-failed']
+    });
+  }
+}
+
+// ============================================================================
+// ENTRY POINT
+// ============================================================================
+
 async function main() {
   const startTime = Date.now();
-  console.log(`[Auto-Fix] Starting for issue #${ISSUE_NUMBER}`);
-
-  // Resolve absolute output path BEFORE any chdir
-  const outputAbsPath = join(__dirname, OUTPUT_PATH);
+  const outputPath = join(__dirname, CONFIG.outputPath);
+  const agent = new AutoFixAgent();
 
   try {
     // Set timeout
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new AutoFixError('TIMEOUT', 'Auto-fix agent timeout exceeded 90s')), TIMEOUT_MS);
+      setTimeout(() => reject(new AutoFixError('TIMEOUT', 'Auto-fix timeout exceeded')), CONFIG.timeoutMs);
     });
 
-    // Run auto-fix with timeout
-    const resultPromise = runAutoFix();
-    const result = await Promise.race([resultPromise, timeoutPromise]);
+    const result = await Promise.race([agent.run(), timeoutPromise]);
 
-    // Write output
-    writeFileSync(outputAbsPath, JSON.stringify(result, null, 2));
+    writeFileSync(outputPath, JSON.stringify(result, null, 2));
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[Auto-Fix] ✓ Completed in ${duration}s`);
@@ -59,21 +1520,18 @@ async function main() {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[Auto-Fix] ✗ Failed after ${duration}s:`, error.message);
 
-    // Attempt rollback
     try {
-      await rollback();
+      await agent.rollback();
     } catch (rollbackError) {
       console.error('[Auto-Fix] Rollback failed:', rollbackError.message);
     }
 
-    // Try to post error comment to issue
     try {
-      await postErrorComment(error);
+      await agent.postErrorComment(error);
     } catch (commentError) {
-      console.error('[Auto-Fix] Failed to post error comment:', commentError.message);
+      console.error('[Auto-Fix] Failed to post error:', commentError.message);
     }
 
-    // Write error output
     const errorResult = {
       success: false,
       error: {
@@ -83,838 +1541,12 @@ async function main() {
         recoverable: false
       }
     };
-    writeFileSync(outputAbsPath, JSON.stringify(errorResult, null, 2));
+
+    writeFileSync(outputPath, JSON.stringify(errorResult, null, 2));
     process.exit(1);
   }
 }
 
-/**
- * Run auto-fix logic (simplified: direct AI prompt → apply changes)
- */
-async function runAutoFix() {
-  const agentsDir = __dirname;
-  const repoRoot = join(__dirname, '..', '..');
-
-  // Resolve absolute paths before chdir
-  const triageResultAbs = join(agentsDir, TRIAGE_RESULT_PATH);
-
-  // Load triage result
-  const triageResult = JSON.parse(readFileSync(triageResultAbs, 'utf8'));
-
-  if (!triageResult.success) {
-    throw new AutoFixError('INVALID_INPUT', 'Triage result indicates failure');
-  }
-
-  const triage = triageResult.data;
-
-  // Validate auto-fix decision
-  if (triage.autoFixDecision !== 'AUTO_FIX') {
-    throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
-  }
-
-  // Get GitHub client
-  const github = getGitHubClient();
-  const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-
-  // Fetch issue details
-  const { data: issue } = await github.rest.issues.get({
-    owner,
-    repo,
-    issue_number: parseInt(ISSUE_NUMBER, 10)
-  });
-
-  console.log(`[Auto-Fix] Processing: ${issue.title}`);
-  console.log(`[Auto-Fix] Classification: ${triage.classification}, Risk: ${triage.risk}`);
-
-  // Security pre-check
-  securityPreCheck(triage.affectedFiles || [], issue.title, issue.body || '');
-
-  // Change to repo root for git operations
-  try {
-    process.chdir(repoRoot);
-    console.log('[Auto-Fix] Changed working directory to repo root');
-  } catch (e) {
-    throw new AutoFixError('CHDIR_FAILED', `Failed to change directory: ${e.message}`);
-  }
-
-  // Generate branch name
-  const branchName = generateBranchName(issue.number, triage.classification, issue.title);
-  console.log(`[Auto-Fix] Branch: ${branchName}`);
-
-  // Create or checkout branch
-  await createBranch(branchName);
-
-  // Fetch repository conventions
-  const conventions = await loadConventions(github, owner, repo);
-
-  // SIMPLIFIED: Direct AI prompt with issue context → get code changes
-  const { fileChanges, commitMessage } = await generateFixDirectly(
-    issue,
-    triage,
-    conventions,
-    github,
-    owner,
-    repo
-  );
-
-  console.log(`[Auto-Fix] Generated ${fileChanges.length} file changes`);
-
-  // Apply changes to working directory
-  for (const fileChange of fileChanges) {
-    console.log(`[Auto-Fix] Applying: ${fileChange.path}`);
-    await applyFileChange(fileChange);
-  }
-
-  // Run validation commands
-  const validationCommands = selectValidationCommands(triage.risk, triage.affectedFiles || [], conventions);
-  const validationResults = await runValidation(validationCommands);
-
-  if (validationCommands.length === 0) {
-    console.log('[Auto-Fix] No validation commands to run');
-  } else {
-    console.log('[Auto-Fix] ✓ All validations passed');
-  }
-
-  // Commit changes
-  const commitSha = await commitChanges(
-    fileChanges.map(fc => fc.path),
-    commitMessage
-  );
-  console.log(`[Auto-Fix] Commit: ${commitSha}`);
-
-  // Push branch
-  await pushBranch(branchName);
-  console.log(`[Auto-Fix] ✓ Pushed ${branchName}`);
-
-  // Build result
-  const commit = {
-    issue_number: issue.number,
-    branch_name: branchName,
-    message: commitMessage,
-    files_changed: fileChanges.map(fc => fc.path),
-    timestamp: new Date().toISOString(),
-    validation_results: validationResults,
-    sha: commitSha
-  };
-
-  return {
-    success: true,
-    data: [commit]
-  };
-}
-
-/**
- * Generate fix directly using AI (simplified approach)
- * Single AI call with full context → get all code changes
- */
-async function generateFixDirectly(issue, triage, conventions, github, owner, repo) {
-  const ai = getAIClient();
-
-  // Fetch project context first (package.json, key files)
-  const projectContext = await fetchProjectContext(github, owner, repo, DEFAULT_BRANCH);
-  console.log(`[Auto-Fix] Project: ${projectContext.framework} (${projectContext.language})`);
-
-  // Determine files to fetch based on issue and project structure
-  let filesToFetch = triage.affectedFiles || [];
-  
-  // If no files specified, try to infer from issue and project context
-  if (filesToFetch.length === 0) {
-    filesToFetch = await inferAffectedFiles(issue, projectContext, github, owner, repo);
-    console.log(`[Auto-Fix] Inferred files: ${filesToFetch.join(', ')}`);
-  }
-
-  // Fetch affected file contents
-  const fileContents = await fetchAffectedFiles(
-    github,
-    owner,
-    repo,
-    filesToFetch,
-    DEFAULT_BRANCH
-  );
-
-  // Build comprehensive prompt WITH project context
-  const prompt = buildDirectFixPrompt(issue, triage, conventions, fileContents, projectContext);
-
-  console.log('[Auto-Fix] Sending direct fix request to AI...');
-
-  // Get AI response
-  const response = await ai.generateText({
-    messages: [
-      { role: 'user', content: prompt }
-    ],
-    temperature: 0.2,
-    max_tokens: 4000
-  });
-
-  // Parse response JSON
-  let fixResult;
-  try {
-    let jsonText = response.trim();
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/```json?\n?/g, '').replace(/```\s*$/g, '').trim();
-    }
-    fixResult = JSON.parse(jsonText);
-  } catch (error) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'Failed to parse AI response JSON', { response });
-  }
-
-  // Validate response structure
-  if (!Array.isArray(fixResult.file_changes) || fixResult.file_changes.length === 0) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'AI response missing file_changes array');
-  }
-
-  if (!fixResult.commit_message) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'AI response missing commit_message');
-  }
-
-  console.log(`[Auto-Fix] AI generated fix for ${fixResult.file_changes.length} files`);
-
-  return {
-    fileChanges: fixResult.file_changes,
-    commitMessage: fixResult.commit_message
-  };
-}
-
-/**
- * Build comprehensive prompt for direct fix generation
- */
-function buildDirectFixPrompt(issue, triage, conventions, fileContents, projectContext) {
-  const fileContexts = fileContents.map(fc => {
-    return `### File: ${fc.path}\n\`\`\`${getFileExtension(fc.path)}\n${fc.content}\n\`\`\``;
-  }).join('\n\n');
-
-  // Build project structure summary
-  const structureSummary = projectContext.structure
-    ? `\n## Project Structure\n\`\`\`\n${projectContext.structure}\n\`\`\``
-    : '';
-
-  return `You are an expert software engineer. Fix this GitHub issue by modifying ONLY the existing files in this project.
-
-## CRITICAL: Project Context
-- **Framework**: ${projectContext.framework}
-- **Language**: ${projectContext.language}
-- **Project Type**: ${projectContext.projectType}
-${projectContext.framework === 'Vue.js' ? `
-**Vue.js Specific**:
-- Use Vue 3 Composition API with <script setup> syntax
-- Use TypeScript for .vue and .ts files
-- Components are in src/components/
-- Composables are in src/composables/
-- DO NOT create React components (no useState, useEffect, jsx)
-- DO NOT create new files unless absolutely necessary
-- ONLY modify existing files that are provided below
-` : ''}
-${projectContext.framework === 'React' ? `
-**React Specific**:
-- Use functional components with hooks
-- DO NOT create Vue components
-` : ''}
-${structureSummary}
-
-## Issue Context
-- **Issue #${issue.number}**: ${issue.title}
-- **Details**: ${issue.body || 'No additional details provided'}
-- **Classification**: ${triage.classification}
-- **Risk Level**: ${triage.risk}
-- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'See files below'}
-
-## Current File Contents (MODIFY THESE FILES ONLY)
-${fileContexts || 'ERROR: No files provided - cannot proceed'}
-
-## Coding Standards
-- Indentation: ${conventions.indent_style === 'space' ? `${conventions.indent_size} spaces` : 'tabs'}
-- Line endings: ${conventions.end_of_line.toUpperCase()}
-- Final newline: ${conventions.insert_final_newline ? 'required' : 'optional'}
-
-## Requirements
-1. **ONLY modify files shown above** - Do not create new files unless the fix absolutely requires it
-2. **Match existing patterns** - Follow the same code style as existing files
-3. **Framework consistency** - Use ${projectContext.framework} patterns (NOT other frameworks)
-4. **Minimal changes** - Only fix what's needed to resolve the issue
-5. **Preserve formatting** - Keep existing code style, comments, whitespace
-6. **No refactoring** - Don't improve unrelated code
-
-## Output Format (JSON only, no markdown)
-{
-  "file_changes": [
-    {
-      "path": "path/to/existing/file.ext",
-      "content": "full updated file content here",
-      "change_summary": "Brief description of change"
-    }
-  ],
-  "commit_message": "type(scope): description\\n\\nFixes #${issue.number}"
-}
-
-**IMPORTANT**: 
-- The path MUST be one of the files shown above (existing files)
-- Include ALL lines of each file (complete content)
-- Use proper escape sequences for special characters in JSON strings
-- For ${projectContext.framework} project - use ${projectContext.framework} patterns only!
-
-Generate the fix now:`;
-}
-
-/**
- * Get file extension for syntax highlighting
- */
-function getFileExtension(path) {
-  const ext = path.split('.').pop();
-  const extMap = {
-    'vue': 'vue',
-    'ts': 'typescript',
-    'js': 'javascript',
-    'tsx': 'tsx',
-    'jsx': 'jsx',
-    'json': 'json',
-    'md': 'markdown',
-    'css': 'css',
-    'scss': 'scss',
-    'html': 'html'
-  };
-  return extMap[ext] || ext;
-}
-
-/**
- * Fetch project context (framework, language, structure)
- */
-async function fetchProjectContext(github, owner, repo, ref) {
-  const context = {
-    framework: 'Unknown',
-    language: 'Unknown',
-    projectType: 'Unknown',
-    structure: '',
-    dependencies: {}
-  };
-
-  try {
-    // Fetch package.json
-    const { data: pkgFile } = await github.rest.repos.getContent({
-      owner,
-      repo,
-      path: 'package.json',
-      ref
-    });
-
-    const pkg = JSON.parse(Buffer.from(pkgFile.content, 'base64').toString('utf8'));
-    context.dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
-
-    // Detect framework
-    if (context.dependencies['vue'] || context.dependencies['@vue/cli-service']) {
-      context.framework = 'Vue.js';
-      context.projectType = context.dependencies['vite'] ? 'Vite + Vue 3' : 'Vue CLI';
-    } else if (context.dependencies['react'] || context.dependencies['react-dom']) {
-      context.framework = 'React';
-      context.projectType = context.dependencies['next'] ? 'Next.js' : 'React';
-    } else if (context.dependencies['@angular/core']) {
-      context.framework = 'Angular';
-      context.projectType = 'Angular';
-    } else if (context.dependencies['svelte']) {
-      context.framework = 'Svelte';
-      context.projectType = 'Svelte';
-    } else {
-      context.framework = 'Node.js';
-      context.projectType = 'Node.js';
-    }
-
-    // Detect language
-    if (context.dependencies['typescript'] || pkg.devDependencies?.['typescript']) {
-      context.language = 'TypeScript';
-    } else {
-      context.language = 'JavaScript';
-    }
-
-  } catch (error) {
-    console.warn('[Auto-Fix] Could not fetch package.json:', error.message);
-  }
-
-  // Fetch project structure (top-level directories)
-  try {
-    const { data: rootContents } = await github.rest.repos.getContent({
-      owner,
-      repo,
-      path: '',
-      ref
-    });
-
-    if (Array.isArray(rootContents)) {
-      const structure = rootContents
-        .filter(item => item.type === 'dir' || item.name.endsWith('.json') || item.name.endsWith('.ts') || item.name.endsWith('.js'))
-        .map(item => item.type === 'dir' ? `${item.name}/` : item.name)
-        .slice(0, 20)
-        .join('\n');
-      context.structure = structure;
-    }
-  } catch (error) {
-    console.warn('[Auto-Fix] Could not fetch project structure:', error.message);
-  }
-
-  return context;
-}
-
-/**
- * Infer affected files from issue content and project context
- */
-async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
-  const issueText = `${issue.title} ${issue.body || ''}`.toLowerCase();
-  const filesToFetch = [];
-
-  // Keywords to file mappings for Vue.js projects
-  const vueFileMappings = {
-    // Form-related
-    'form': ['src/components/form/FormRenderer.vue', 'src/components/form/FieldWrapper.vue', 'src/composables/useFormValidation.ts'],
-    'validation': ['src/composables/useFormValidation.ts', 'src/components/form/ValidationError.vue', 'src/components/form/FieldWrapper.vue'],
-    'error': ['src/components/form/ValidationError.vue', 'src/composables/useFormValidation.ts', 'src/components/form/FieldWrapper.vue'],
-    'input': ['src/components/base/BaseInput.vue', 'src/components/form/FieldWrapper.vue'],
-    'field': ['src/components/form/FieldWrapper.vue', 'src/components/form/FormRenderer.vue'],
-    'submit': ['src/composables/useFormSubmission.ts', 'src/components/form/FormRenderer.vue'],
-    
-    // Component-related
-    'button': ['src/components/base/BaseButton.vue'],
-    'select': ['src/components/base/BaseSelect.vue'],
-    'checkbox': ['src/components/base/BaseCheckbox.vue'],
-    'radio': ['src/components/base/BaseRadio.vue'],
-    'textarea': ['src/components/base/BaseTextarea.vue'],
-    
-    // Step/wizard-related
-    'step': ['src/components/form/FormStep.vue', 'src/components/form/StepIndicator.vue', 'src/composables/useMultiStep.ts'],
-    'multi-step': ['src/composables/useMultiStep.ts', 'src/components/form/FormStep.vue'],
-    
-    // Conditional-related
-    'conditional': ['src/composables/useConditionalFields.ts'],
-    'dependency': ['src/composables/useFieldDependency.ts'],
-    
-    // Demo/view-related
-    'demo': ['src/views/DemoView.vue'],
-    'config': ['src/components/demo/ConfigEditor.vue', 'src/components/demo/ConfigValidator.vue'],
-    
-    // Payload-related
-    'payload': ['src/components/payload/PayloadPreview.vue', 'src/components/payload/JsonDisplay.vue'],
-    'json': ['src/components/payload/JsonDisplay.vue'],
-    
-    // Toast/notification
-    'toast': ['src/components/common/ToastNotification.vue'],
-    'notification': ['src/components/common/ToastNotification.vue'],
-  };
-
-  // React file mappings (if needed)
-  const reactFileMappings = {
-    'form': ['src/components/Form.tsx', 'src/hooks/useForm.ts'],
-    'validation': ['src/hooks/useValidation.ts'],
-  };
-
-  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings : 
-                        projectContext.framework === 'React' ? reactFileMappings : {};
-
-  // Check which keywords match
-  for (const [keyword, files] of Object.entries(fileMappings)) {
-    if (issueText.includes(keyword)) {
-      for (const file of files) {
-        if (!filesToFetch.includes(file)) {
-          filesToFetch.push(file);
-        }
-      }
-    }
-  }
-
-  // Validate files exist (and fetch only existing ones)
-  const validFiles = [];
-  for (const file of filesToFetch.slice(0, 5)) { // Limit to 5 files
-    try {
-      await github.rest.repos.getContent({
-        owner,
-        repo,
-        path: file,
-        ref: DEFAULT_BRANCH
-      });
-      validFiles.push(file);
-    } catch (error) {
-      // File doesn't exist, skip
-    }
-  }
-
-  return validFiles;
-}
-
-/**
- * Fetch affected file contents from repository
- */
-async function fetchAffectedFiles(github, owner, repo, filePaths, ref) {
-  const results = [];
-
-  for (const path of filePaths) {
-    try {
-      const { data: file } = await github.rest.repos.getContent({
-        owner,
-        repo,
-        path,
-        ref
-      });
-
-      if (file.type === 'file') {
-        const content = Buffer.from(file.content, 'base64').toString('utf8');
-        results.push({ path, content });
-      }
-    } catch (error) {
-      if (error.status === 404) {
-        // File doesn't exist (might be CREATE operation)
-        results.push({ path, content: '' });
-      } else {
-        console.warn(`[Auto-Fix] Failed to fetch ${path}: ${error.message}`);
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Apply file change to working directory
- */
-async function applyFileChange(fileChange) {
-  try {
-    writeFileSync(fileChange.path, fileChange.content, 'utf8');
-    console.log(`[Auto-Fix] ✓ Updated ${fileChange.path}`);
-  } catch (error) {
-    throw new AutoFixError('FILE_WRITE_FAILED', `Failed to write ${fileChange.path}: ${error.message}`);
-  }
-}
-
-/**
- * Security pre-check to block sensitive file modifications
- */
-function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
-  console.log('[Auto-Fix] Running security pre-check...');
-  
-  const violations = [];
-  
-  // Check each file against security patterns
-  for (const filePath of affectedFiles) {
-    const fileMatches = checkSecurityFilePath(filePath);
-    if (fileMatches.length > 0) {
-      violations.push({
-        path: filePath,
-        reason: 'Security-sensitive file path detected',
-        patterns: fileMatches.map(m => m.pattern.source),
-      });
-    }
-    
-    // Additional critical patterns
-    const CRITICAL_PATTERNS = [
-      { pattern: /^\.env/, reason: 'Environment configuration file' },
-      { pattern: /\.env$/, reason: 'Environment configuration file' },
-      { pattern: /\.env\./, reason: 'Environment configuration file' },
-      { pattern: /config\/secrets\//, reason: 'Secrets configuration directory' },
-      { pattern: /\.pem$/, reason: 'Private key file' },
-      { pattern: /\.key$/, reason: 'Private key file' },
-      { pattern: /id_rsa/, reason: 'SSH private key' },
-      { pattern: /^\.github\/workflows\//, reason: 'CI/CD workflow file' },
-      { pattern: /deployment\//, reason: 'Deployment configuration' },
-      { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
-      { pattern: /kubernetes\//, reason: 'Kubernetes configuration' },
-    ];
-    
-    for (const { pattern, reason } of CRITICAL_PATTERNS) {
-      if (pattern.test(filePath)) {
-        violations.push({ path: filePath, reason, pattern: pattern.source });
-      }
-    }
-  }
-  
-  // Check for risky change types
-  const riskyChanges = checkRiskyChangeTypes(`${issueTitle} ${issueBody}`, affectedFiles);
-  
-  for (const riskyChange of riskyChanges) {
-    const BLOCKED_CHANGE_TYPES = ['DATABASE_MIGRATION', 'CI_CD_PIPELINE', 'INFRASTRUCTURE_CONFIG'];
-    if (BLOCKED_CHANGE_TYPES.includes(riskyChange.type)) {
-      violations.push({
-        path: 'multiple',
-        reason: `${riskyChange.type}: ${riskyChange.reason}`,
-        type: riskyChange.type,
-      });
-    }
-  }
-  
-  // Block if violations found
-  if (violations.length > 0) {
-    console.error('[Auto-Fix] ⛔ Security violations detected:');
-    violations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
-    
-    throw new AutoFixError(
-      'SECURITY_VIOLATION',
-      `Auto-fix blocked: ${violations.length} security violation(s) detected`,
-      { violations }
-    );
-  }
-  
-  console.log('[Auto-Fix] ✓ Security pre-check passed');
-}
-
-/**
- * Generate branch name
- */
-function generateBranchName(issueNumber, classification, title) {
-  const prefixMap = {
-    'BUG': 'fix',
-    'FEATURE': 'feature',
-    'DOCS': 'docs',
-    'CHORE': 'chore',
-    'OTHER': 'fix'
-  };
-
-  const prefix = prefixMap[classification] || 'fix';
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 5)
-    .join('-')
-    .substring(0, 50);
-
-  return `${prefix}/${issueNumber}-${slug}`;
-}
-
-/**
- * Create or checkout branch (idempotent)
- */
-async function createBranch(branchName) {
-  try {
-    try {
-      gitOps.checkoutBranch(process.cwd(), branchName);
-      console.log(`[Auto-Fix] Branch ${branchName} exists, checked out`);
-    } catch (checkoutError) {
-      console.log(`[Auto-Fix] Creating branch ${branchName}`);
-      gitOps.createBranch(process.cwd(), branchName, DEFAULT_BRANCH);
-    }
-  } catch (error) {
-    throw new AutoFixError('GIT_BRANCH_FAILED', `Failed to create/checkout branch: ${error.message}`);
-  }
-}
-
-/**
- * Load project conventions
- */
-async function loadConventions(github, owner, repo) {
-  const defaults = {
-    indent_style: 'space',
-    indent_size: 2,
-    end_of_line: 'lf',
-    insert_final_newline: true,
-    lint_command: null,
-    type_check_command: null,
-    build_command: null
-  };
-
-  try {
-    // Try to fetch package.json for scripts
-    const { data: packageJson } = await github.rest.repos.getContent({
-      owner,
-      repo,
-      path: 'package.json'
-    });
-
-    const pkg = JSON.parse(Buffer.from(packageJson.content, 'base64').toString('utf8'));
-
-    if (pkg.scripts) {
-      if (pkg.scripts.lint) defaults.lint_command = 'npm run lint';
-      if (pkg.scripts['type-check']) defaults.type_check_command = 'npm run type-check';
-      if (pkg.scripts.build) defaults.build_command = 'npm run build';
-    }
-  } catch (error) {
-    console.log('[Auto-Fix] Using default conventions');
-  }
-
-  try {
-    // Try to fetch .editorconfig
-    const { data: editorconfig } = await github.rest.repos.getContent({
-      owner,
-      repo,
-      path: '.editorconfig'
-    });
-
-    const content = Buffer.from(editorconfig.content, 'base64').toString('utf8');
-    if (content.includes('indent_style = tab')) defaults.indent_style = 'tab';
-    const sizeMatch = content.match(/indent_size = (\d+)/);
-    if (sizeMatch) defaults.indent_size = parseInt(sizeMatch[1], 10);
-  } catch (error) {
-    // Use defaults
-  }
-
-  return defaults;
-}
-
-/**
- * Select validation commands
- */
-function selectValidationCommands(risk, affectedFiles, conventions) {
-  const commands = [];
-
-  if (conventions.lint_command) {
-    commands.push(conventions.lint_command);
-  }
-
-  const needsTypeCheck = affectedFiles.some(f =>
-    f.endsWith('.ts') || f.endsWith('.vue') || f.endsWith('.tsx')
-  );
-  if (needsTypeCheck && conventions.type_check_command) {
-    commands.push(conventions.type_check_command);
-  }
-
-  if ((risk === 'MEDIUM' || risk === 'HIGH') && conventions.build_command) {
-    commands.push(conventions.build_command);
-  }
-
-  // Filter out test commands (Constitution Principle V: NO TESTING)
-  return commands.filter(c => !c.toLowerCase().includes('test'));
-}
-
-/**
- * Run validation commands
- */
-async function runValidation(commands) {
-  const results = [];
-
-  for (const command of commands) {
-    console.log(`[Auto-Fix] Running: ${command}`);
-    const startTime = Date.now();
-
-    try {
-      const output = execSync(command, {
-        stdio: 'pipe',
-        encoding: 'utf8',
-        timeout: 90000
-      });
-
-      const duration = Date.now() - startTime;
-      results.push({
-        command,
-        exit_code: 0,
-        stdout: output.slice(0, 1000),
-        stderr: '',
-        duration_ms: duration
-      });
-
-      console.log(`[Auto-Fix] ✓ ${command} passed (${duration}ms)`);
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const result = {
-        command,
-        exit_code: error.status || 1,
-        stdout: error.stdout?.slice(0, 1000) || '',
-        stderr: error.stderr?.slice(0, 1000) || error.message,
-        duration_ms: duration
-      };
-
-      results.push(result);
-
-      throw new AutoFixError('VALIDATION_FAILED', `Validation command failed: ${command}`, {
-        validation_results: results,
-        output: error.stderr?.toString() || error.message
-      });
-    }
-  }
-
-  return results;
-}
-
-/**
- * Commit changes
- */
-async function commitChanges(filePaths, message) {
-  try {
-    gitOps.stageFiles(process.cwd(), filePaths);
-    const sha = gitOps.createCommit(process.cwd(), message);
-    return sha;
-  } catch (error) {
-    throw new AutoFixError('GIT_COMMIT_FAILED', `Failed to commit: ${error.message}`);
-  }
-}
-
-/**
- * Push branch
- */
-async function pushBranch(branchName) {
-  try {
-    gitOps.pushBranch(process.cwd(), branchName);
-  } catch (error) {
-    throw new AutoFixError('GIT_PUSH_FAILED', `Failed to push branch: ${error.message}`, {
-      branch: branchName
-    });
-  }
-}
-
-/**
- * Rollback on failure
- */
-async function rollback() {
-  console.log('[Auto-Fix] Rolling back changes...');
-
-  try {
-    execSync('git reset --hard HEAD', { stdio: 'pipe' });
-    execSync(`git checkout ${DEFAULT_BRANCH}`, { stdio: 'pipe' });
-    console.log('[Auto-Fix] ✓ Rollback complete');
-  } catch (error) {
-    console.error('[Auto-Fix] Rollback failed:', error.message);
-  }
-}
-
-/**
- * Post error comment to issue
- */
-async function postErrorComment(error) {
-  const github = getGitHubClient();
-  const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-  
-  let errorComment = `## ❌ Auto-Fix Failed\n\n`;
-  errorComment += `**Error**: ${error.message}\n\n`;
-  
-  if (error.code === 'VALIDATION_FAILED') {
-    errorComment += `### Validation Failure\n\n`;
-    errorComment += `The automated fix was generated but failed validation checks:\n\n`;
-    if (error.details?.output) {
-      errorComment += `\`\`\`\n${error.details.output.slice(0, 1000)}\n\`\`\`\n\n`;
-    }
-    errorComment += `**Next Steps**:\n`;
-    errorComment += `- Review the validation error above\n`;
-    errorComment += `- The changes have been rolled back\n`;
-    errorComment += `- Manual fix may be required\n`;
-  } else if (error.code === 'SECURITY_VIOLATION') {
-    errorComment += `### Security Block\n\n`;
-    errorComment += `This issue affects security-sensitive files or configurations.\n\n`;
-    errorComment += `**Violations**:\n`;
-    if (error.details?.violations) {
-      error.details.violations.forEach(v => {
-        errorComment += `- \`${v.path}\`: ${v.reason}\n`;
-      });
-    }
-    errorComment += `\n**Action Required**: Manual review and implementation by maintainer.\n`;
-  } else {
-    errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n\n`;
-    errorComment += `The automation system encountered an error and has rolled back any changes.\n\n`;
-    errorComment += `A maintainer will need to investigate this issue manually.\n`;
-  }
-  
-  await github.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: parseInt(ISSUE_NUMBER, 10),
-    body: errorComment,
-  });
-  
-  // Add automation-failed label
-  await github.rest.issues.addLabels({
-    owner,
-    repo,
-    issue_number: parseInt(ISSUE_NUMBER, 10),
-    labels: ['automation-failed'],
-  });
-  
-  console.log('[Auto-Fix] Posted error comment and added automation-failed label');
-}
-
-// Run main function
 main().catch(error => {
   console.error('[Auto-Fix] Unhandled error:', error);
   process.exit(1);

@@ -24,7 +24,7 @@
                     <p v-if="field.dataSource && dataSource.errors.value[field.name]" 
                        class="mt-2 text-sm text-error-600 flex items-center gap-2">
                         <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
                         </svg>
                         <span>{{ dataSource.errors.value[field.name] }}</span>
                         <button @click="dataSource.retryFetch(field.name, field.dataSource!)" 
@@ -55,6 +55,11 @@
                 <BaseButton v-else type="submit" :loading="formState.submitState === 'submitting'"
                     :disabled="formState.submitState === 'submitting'">
                     Submit
+                </BaseButton>
+                <!-- Go back button after submission -->
+                <BaseButton v-if="isMultiStep && formState.submitState === 'success'" type="button" variant="secondary"
+                    @click="handleGoBack">
+                    Go Back
                 </BaseButton>
             </div>
         </div>
@@ -329,6 +334,17 @@ async function handleSubmit() {
     if (success && submitResponse.value) {
         emit('submit', submitResponse.value)
     }
+}
+
+/**
+ * Handles "Go Back" button click after submission
+ */
+function handleGoBack() {
+    if (!multiStep) return
+
+    transitionDirection.value = 'slide-right'
+    formState.value.submitState = 'idle'
+    multiStep.goToPrevious()
 }
 
 // Expose form state for parent components

@@ -2,7 +2,7 @@ name: Auto-Fix GitHub Issues
 
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -17,9 +17,52 @@ permissions:
   models: read
 
 jobs:
+  check-prerequisites:
+    name: Check Prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      should_proceed: ${{ steps.check.outputs.should_proceed }}
+      skip_reason: ${{ steps.check.outputs.skip_reason }}
+    
+    steps:
+      - name: Check if auto-fix should proceed
+        id: check
+        run: |
+          # Check if issue has auto-fix label OR auto-fix-approved label
+          LABELS='${{ toJSON(github.event.issue.labels.*.name) }}'
+          echo "Issue labels: $LABELS"
+          
+          # For labeled event, only proceed if the new label is auto-fix or auto-fix-approved
+          if [ "${{ github.event.action }}" = "labeled" ]; then
+            LABEL_NAME="${{ github.event.label.name }}"
+            echo "Label added: $LABEL_NAME"
+            
+            if [ "$LABEL_NAME" = "auto-fix" ] || [ "$LABEL_NAME" = "auto-fix-approved" ]; then
+              echo "should_proceed=true" >> $GITHUB_OUTPUT
+              echo "✓ Auto-fix triggered by label: $LABEL_NAME"
+            else
+              echo "should_proceed=false" >> $GITHUB_OUTPUT
+              echo "skip_reason=Wrong label added (expected auto-fix or auto-fix-approved)" >> $GITHUB_OUTPUT
+              echo "⊘ Skipping: Wrong label"
+            fi
+          else
+            # For opened event, check if issue already has auto-fix label
+            if echo "$LABELS" | jq -e '.[] | select(. == "auto-fix" or . == "auto-fix-approved")' > /dev/null; then
+              echo "should_proceed=true" >> $GITHUB_OUTPUT
+              echo "✓ Issue has auto-fix approval label"
+            else
+              echo "should_proceed=false" >> $GITHUB_OUTPUT
+              echo "skip_reason=No auto-fix label (add 'auto-fix' or 'auto-fix-approved' label to trigger)" >> $GITHUB_OUTPUT
+              echo "⊘ Skipping: No auto-fix approval label"
+            fi
+          fi
+
   triage:
     name: Triage Issue
     runs-on: ubuntu-latest
+    needs: check-prerequisites
+    if: needs.check-prerequisites.outputs.should_proceed == 'true'
     timeout-minutes: 1
     outputs:
       triage_result: ${{ steps.triage.outputs.result }}
