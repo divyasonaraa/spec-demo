@@ -165,61 +165,144 @@ function determineErrorCode(error) {
  */
 export function formatErrorForComment(error, agent = 'auto-fix') {
   const isAutoFixError = error instanceof AutoFixError;
+  const errorCode = isAutoFixError ? error.code : 'UNKNOWN';
   
-  let markdown = `## ⚠️ Auto-Fix Failed\n\n`;
-  markdown += `The ${agent} agent encountered an error:\n\n`;
-  markdown += `**Error**: ${error.message}\n\n`;
+  let markdown = `## 🤖 Auto-Fix Agent - Failed\n\n`;
+  markdown += `The automated fix attempt encountered an error and has been rolled back.\n\n`;
+  markdown += `### Error Details\n\n`;
+  markdown += `**Error Code**: \`${errorCode}\`\n`;
+  markdown += `**Message**: ${error.message}\n\n`;
   
-  if (isAutoFixError) {
-    markdown += `**Error Code**: \`${error.code}\`\n\n`;
+  // Provide detailed guidance based on error type
+  if (errorCode === 'VALIDATION_FAILED') {
+    markdown += `### 🔍 What Happened\n\n`;
+    markdown += `The AI generated a fix, but it failed validation checks (lint, type-check, or build).\n\n`;
     
-    if (error.isRetryable()) {
-      markdown += `This error is retryable. The workflow may retry automatically.\n\n`;
+    if (error.context?.validation_results) {
+      const lastResult = error.context.validation_results[error.context.validation_results.length - 1];
+      if (lastResult) {
+        markdown += `**Failed Command**: \`${lastResult.command}\`\n\n`;
+      }
     }
     
-    if (Object.keys(error.context).length > 0) {
-      markdown += `<details>\n<summary>Error Details</summary>\n\n`;
-      markdown += `\`\`\`json\n${JSON.stringify(error.context, null, 2)}\n\`\`\`\n\n`;
-      markdown += `</details>\n\n`;
+    if (error.context?.output) {
+      markdown += `**Validation Output**:\n`;
+      markdown += `\`\`\`\n${error.context.output.slice(0, 1500)}\n\`\`\`\n\n`;
     }
-  }
-  
-  markdown += `### What to do next\n\n`;
-  
-  // Provide guidance based on error type
-  if (isAutoFixError) {
-    switch (error.code) {
-      case ErrorCodes.SECURITY_VIOLATION:
-        markdown += `- This issue involves security-sensitive changes that require human review\n`;
-        markdown += `- A maintainer should manually review and implement the fix\n`;
-        break;
-        
-      case ErrorCodes.VALIDATION_FAILED:
-        markdown += `- The generated fix did not pass validation checks\n`;
-        markdown += `- Review the validation errors and fix manually\n`;
-        break;
-        
-      case ErrorCodes.GITHUB_RATE_LIMIT:
-        markdown += `- GitHub API rate limit reached\n`;
-        markdown += `- Wait for rate limit reset and try again\n`;
-        break;
-        
-      case ErrorCodes.GIT_CONFLICT:
-        markdown += `- Merge conflict detected\n`;
-        markdown += `- Manual resolution required\n`;
-        break;
-        
-      default:
-        markdown += `- Review the error details above\n`;
-        markdown += `- A maintainer should investigate and fix manually\n`;
+    
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Review the validation error** above to understand what went wrong\n`;
+    markdown += `2. **Check the affected files** mentioned in the issue\n`;
+    markdown += `3. **Run the failed command locally**:\n`;
+    if (error.context?.validation_results) {
+      const lastResult = error.context.validation_results[error.context.validation_results.length - 1];
+      if (lastResult) {
+        markdown += `   \`\`\`bash\n   ${lastResult.command}\n   \`\`\`\n`;
+      }
     }
+    markdown += `4. **Fix the issue manually** and create a PR\n\n`;
+    markdown += `💡 **Tip**: The AI-generated code may be close to correct. Consider checking the workflow logs for what was attempted.\n`;
+    
+  } else if (errorCode === 'SECURITY_VIOLATION') {
+    markdown += `### 🔒 Security Block\n\n`;
+    markdown += `This issue was **blocked for security reasons**. It affects sensitive files or configurations that require manual review.\n\n`;
+    markdown += `**Blocked Items**:\n`;
+    if (error.context?.violations) {
+      error.context.violations.forEach(v => {
+        markdown += `- \`${v.path}\`\n`;
+        markdown += `  - **Reason**: ${v.reason}\n`;
+        if (v.pattern) {
+          markdown += `  - **Pattern**: \`${v.pattern}\`\n`;
+        }
+      });
+    }
+    markdown += `\n### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Understand the security concern** - Review why these files are sensitive\n`;
+    markdown += `2. **Manual implementation required** - A maintainer with appropriate access must implement this fix\n`;
+    markdown += `3. **Follow security review process** - Ensure changes go through proper security review\n`;
+    markdown += `4. **Test in isolated environment** - Test changes thoroughly before deploying\n\n`;
+    markdown += `⚠️ **Important**: Never commit sensitive data like API keys, passwords, or private keys.\n`;
+    
+  } else if (errorCode === 'INVALID_AI_OUTPUT' || errorCode === 'AI_ERROR') {
+    markdown += `### 🤔 What Happened\n\n`;
+    markdown += `The AI couldn't generate a valid fix for this issue. This usually means:\n`;
+    markdown += `- The issue description needs more context or clarity\n`;
+    markdown += `- The affected files couldn't be determined automatically\n`;
+    markdown += `- The fix requires complex changes across multiple systems\n\n`;
+    
+    if (error.context?.response) {
+      markdown += `**AI Response Preview**:\n`;
+      markdown += `\`\`\`\n${error.context.response.slice(0, 500)}...\n\`\`\`\n\n`;
+    }
+    
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Add more details to the issue**:\n`;
+    markdown += `   - Which files need to be changed?\n`;
+    markdown += `   - What is the expected behavior?\n`;
+    markdown += `   - Include code examples or error messages\n\n`;
+    markdown += `2. **Specify affected files** in the issue body (e.g., "Affected file: \`src/components/Button.vue\`")\n\n`;
+    markdown += `3. **Or implement manually** - This may require human understanding and context\n`;
+    
+  } else if (errorCode === 'NOT_AUTO_FIX' || errorCode === 'INVALID_INPUT') {
+    markdown += `### ℹ️ What Happened\n\n`;
+    markdown += `The triage agent determined this issue is **not suitable for automatic fixing**.\n\n`;
+    markdown += `**Reason**: ${error.message}\n\n`;
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `This issue requires manual implementation by a developer. The auto-fix system cannot handle:\n`;
+    markdown += `- Complex architectural changes\n`;
+    markdown += `- Changes requiring business logic decisions\n`;
+    markdown += `- Updates to infrastructure or deployment configurations\n`;
+    markdown += `- Changes requiring human judgment or stakeholder input\n`;
+    
+  } else if (errorCode === 'TIMEOUT') {
+    markdown += `### ⏱️ What Happened\n\n`;
+    markdown += `The auto-fix agent exceeded the timeout limit.\n\n`;
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Simplify the issue** - Break it into smaller, focused issues\n`;
+    markdown += `2. **Reduce file count** - Specify fewer files to modify\n`;
+    markdown += `3. **Manual implementation** - Complex changes may require manual work\n`;
+    
+  } else if (errorCode === 'GITHUB_RATE_LIMIT' || errorCode === 'AI_RATE_LIMIT') {
+    markdown += `### ⏳ What Happened\n\n`;
+    markdown += `Rate limit reached for ${errorCode === 'GITHUB_RATE_LIMIT' ? 'GitHub API' : 'AI provider'}.\n\n`;
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Wait for rate limit reset** - This is temporary\n`;
+    if (isAutoFixError && error.isRetryable()) {
+      markdown += `2. **Automatic retry** - The workflow may retry automatically\n`;
+    }
+    markdown += `3. **Check workflow logs** for rate limit details\n`;
+    
+  } else if (errorCode === 'GIT_ERROR' || errorCode === 'GIT_CONFLICT') {
+    markdown += `### 🔀 What Happened\n\n`;
+    markdown += `Git operation failed. This may be due to:\n`;
+    markdown += `- Merge conflicts\n`;
+    markdown += `- Branch protection rules\n`;
+    markdown += `- Permission issues\n\n`;
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Check branch protection rules** - Ensure automation has proper permissions\n`;
+    markdown += `2. **Resolve conflicts manually** - If merge conflicts exist\n`;
+    markdown += `3. **Review git logs** in workflow run for details\n`;
+    
   } else {
-    markdown += `- Review the error message above\n`;
-    markdown += `- A maintainer should investigate and fix manually\n`;
+    markdown += `### 🛠️ How to Fix\n\n`;
+    markdown += `1. **Check the GitHub Actions logs** for detailed error information\n`;
+    markdown += `2. **Review the issue description** - Ensure it's clear and specific\n`;
+    markdown += `3. **Try manual implementation** - Some fixes may be too complex for automation\n`;
+    markdown += `4. **Report to maintainers** if this seems like a bug in the automation system\n`;
   }
   
-  markdown += `\n---\n`;
-  markdown += `*Auto-fix workflow failed at ${new Date().toISOString()}*`;
+  if (isAutoFixError && Object.keys(error.context).length > 0) {
+    markdown += `\n<details>\n<summary>📋 Technical Details</summary>\n\n`;
+    markdown += `\`\`\`json\n${JSON.stringify(error.context, null, 2)}\n\`\`\`\n\n`;
+    markdown += `</details>\n`;
+  }
+  
+  markdown += `\n---\n\n`;
+  markdown += `### 📚 Additional Resources\n\n`;
+  markdown += `- **Workflow Run**: [View detailed logs](../../actions)\n`;
+  markdown += `- **Auto-Fix Documentation**: Check the repository README for auto-fix requirements\n`;
+  markdown += `- **Manual Fix Guide**: Follow the standard PR process for manual fixes\n\n`;
+  markdown += `> 💬 **Need Help?** Comment on this issue with questions or tag a maintainer.\n`;
   
   return markdown;
 }

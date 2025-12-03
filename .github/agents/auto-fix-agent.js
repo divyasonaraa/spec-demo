@@ -216,7 +216,7 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
 
   // Determine files to fetch based on issue and project structure
   let filesToFetch = triage.affectedFiles || [];
-  
+
   // If no files specified, try to infer from issue and project context
   if (filesToFetch.length === 0) {
     filesToFetch = await inferAffectedFiles(issue, projectContext, github, owner, repo);
@@ -468,34 +468,34 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     'input': ['src/components/base/BaseInput.vue', 'src/components/form/FieldWrapper.vue'],
     'field': ['src/components/form/FieldWrapper.vue', 'src/components/form/FormRenderer.vue'],
     'submit': ['src/composables/useFormSubmission.ts', 'src/components/form/FormRenderer.vue'],
-    
+
     // Component-related
     'button': ['src/components/base/BaseButton.vue'],
     'select': ['src/components/base/BaseSelect.vue'],
     'checkbox': ['src/components/base/BaseCheckbox.vue'],
     'radio': ['src/components/base/BaseRadio.vue'],
     'textarea': ['src/components/base/BaseTextarea.vue'],
-    
+
     // Step/wizard-related
     'step': ['src/components/form/FormStep.vue', 'src/components/form/StepIndicator.vue', 'src/composables/useMultiStep.ts'],
     'multi-step': ['src/composables/useMultiStep.ts', 'src/components/form/FormStep.vue'],
-    
+
     // Conditional-related
     'conditional': ['src/composables/useConditionalFields.ts'],
     'dependency': ['src/composables/useFieldDependency.ts'],
-    
+
     // Demo/view-related
     'demo': ['src/views/DemoView.vue'],
     'config': ['src/components/demo/ConfigEditor.vue', 'src/components/demo/ConfigValidator.vue'],
-    
+
     // Payload-related
     'payload': ['src/components/payload/PayloadPreview.vue', 'src/components/payload/JsonDisplay.vue'],
     'json': ['src/components/payload/JsonDisplay.vue'],
-    
+
     // Toast/notification
     'toast': ['src/components/common/ToastNotification.vue'],
     'notification': ['src/components/common/ToastNotification.vue'],
-    
+
     // Documentation files (universal - should work for any framework)
     'readme': ['README.md'],
     'documentation': ['README.md', 'docs/README.md'],
@@ -521,8 +521,8 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     'validation': ['src/hooks/useValidation.ts'],
   };
 
-  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings : 
-                        projectContext.framework === 'React' ? reactFileMappings : {};
+  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings :
+    projectContext.framework === 'React' ? reactFileMappings : {};
 
   // First check doc file mappings (higher priority for doc-related issues)
   for (const [keyword, files] of Object.entries(docFileMappings)) {
@@ -614,9 +614,9 @@ async function applyFileChange(fileChange) {
  */
 function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
   console.log('[Auto-Fix] Running security pre-check...');
-  
+
   const violations = [];
-  
+
   // Check each file against security patterns
   for (const filePath of affectedFiles) {
     const fileMatches = checkSecurityFilePath(filePath);
@@ -627,7 +627,7 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
         patterns: fileMatches.map(m => m.pattern.source),
       });
     }
-    
+
     // Additional critical patterns
     const CRITICAL_PATTERNS = [
       { pattern: /^\.env/, reason: 'Environment configuration file' },
@@ -642,17 +642,17 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
       { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
       { pattern: /kubernetes\//, reason: 'Kubernetes configuration' },
     ];
-    
+
     for (const { pattern, reason } of CRITICAL_PATTERNS) {
       if (pattern.test(filePath)) {
         violations.push({ path: filePath, reason, pattern: pattern.source });
       }
     }
   }
-  
+
   // Check for risky change types
   const riskyChanges = checkRiskyChangeTypes(`${issueTitle} ${issueBody}`, affectedFiles);
-  
+
   for (const riskyChange of riskyChanges) {
     const BLOCKED_CHANGE_TYPES = ['DATABASE_MIGRATION', 'CI_CD_PIPELINE', 'INFRASTRUCTURE_CONFIG'];
     if (BLOCKED_CHANGE_TYPES.includes(riskyChange.type)) {
@@ -663,19 +663,19 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
       });
     }
   }
-  
+
   // Block if violations found
   if (violations.length > 0) {
     console.error('[Auto-Fix] ⛔ Security violations detected:');
     violations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
-    
+
     throw new AutoFixError(
       'SECURITY_VIOLATION',
       `Auto-fix blocked: ${violations.length} security violation(s) detected`,
       { violations }
     );
   }
-  
+
   console.log('[Auto-Fix] ✓ Security pre-check passed');
 }
 
@@ -895,26 +895,26 @@ async function rollback() {
 async function postErrorComment(error) {
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-  
+
   let errorComment = `## 🤖 Auto-Fix Agent - Failed\n\n`;
   errorComment += `The automated fix attempt encountered an error and has been rolled back.\n\n`;
   errorComment += `### Error Details\n\n`;
   errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n`;
   errorComment += `**Message**: ${error.message}\n\n`;
-  
+
   if (error.code === 'VALIDATION_FAILED') {
     errorComment += `### 🔍 What Happened\n\n`;
     errorComment += `The AI generated a fix, but it failed validation checks (lint, type-check, or build).\n\n`;
-    
+
     if (error.details?.validation_results) {
       errorComment += `**Failed Command**: \`${error.details.validation_results[error.details.validation_results.length - 1]?.command}\`\n\n`;
     }
-    
+
     if (error.details?.output) {
       errorComment += `**Validation Output**:\n`;
       errorComment += `\`\`\`\n${error.details.output.slice(0, 1500)}\n\`\`\`\n\n`;
     }
-    
+
     errorComment += `### 🛠️ How to Fix\n\n`;
     errorComment += `1. **Review the validation error** above to understand what went wrong\n`;
     errorComment += `2. **Check the affected files** mentioned in the issue\n`;
@@ -925,7 +925,7 @@ async function postErrorComment(error) {
     }
     errorComment += `4. **Fix the issue manually** and create a PR\n\n`;
     errorComment += `💡 **Tip**: The AI-generated code may be close to correct. Consider checking the workflow logs for what was attempted.\n`;
-    
+
   } else if (error.code === 'SECURITY_VIOLATION') {
     errorComment += `### 🔒 Security Block\n\n`;
     errorComment += `This issue was **blocked for security reasons**. It affects sensitive files or configurations that require manual review.\n\n`;
@@ -945,19 +945,19 @@ async function postErrorComment(error) {
     errorComment += `3. **Follow security review process** - Ensure changes go through proper security review\n`;
     errorComment += `4. **Test in isolated environment** - Test changes thoroughly before deploying\n\n`;
     errorComment += `⚠️ **Important**: Never commit sensitive data like API keys, passwords, or private keys.\n`;
-    
+
   } else if (error.code === 'INVALID_AI_OUTPUT') {
     errorComment += `### 🤔 What Happened\n\n`;
     errorComment += `The AI couldn't generate a valid fix for this issue. This usually means:\n`;
     errorComment += `- The issue description needs more context or clarity\n`;
     errorComment += `- The affected files couldn't be determined automatically\n`;
     errorComment += `- The fix requires complex changes across multiple systems\n\n`;
-    
+
     if (error.details?.response) {
       errorComment += `**AI Response Preview**:\n`;
       errorComment += `\`\`\`\n${error.details.response.slice(0, 500)}...\n\`\`\`\n\n`;
     }
-    
+
     errorComment += `### 🛠️ How to Fix\n\n`;
     errorComment += `1. **Add more details to the issue**:\n`;
     errorComment += `   - Which files need to be changed?\n`;
@@ -965,7 +965,7 @@ async function postErrorComment(error) {
     errorComment += `   - Include code examples or error messages\n\n`;
     errorComment += `2. **Specify affected files** in the issue body (e.g., "Affected file: \`src/components/Button.vue\`")\n\n`;
     errorComment += `3. **Or implement manually** - This may require human understanding and context\n`;
-    
+
   } else if (error.code === 'NOT_AUTO_FIX') {
     errorComment += `### ℹ️ What Happened\n\n`;
     errorComment += `The triage agent determined this issue is **not suitable for automatic fixing**.\n\n`;
@@ -976,7 +976,7 @@ async function postErrorComment(error) {
     errorComment += `- Changes requiring business logic decisions\n`;
     errorComment += `- Updates to infrastructure or deployment configurations\n`;
     errorComment += `- Changes requiring human judgment or stakeholder input\n`;
-    
+
   } else if (error.code === 'NO_FILES_FOUND') {
     errorComment += `### 📁 What Happened\n\n`;
     errorComment += `The agent couldn't determine which files to modify based on the issue description.\n\n`;
@@ -989,7 +989,7 @@ async function postErrorComment(error) {
     errorComment += `   - Which component/module is affected?\n`;
     errorComment += `   - Include stack traces or error messages\n\n`;
     errorComment += `3. **Re-trigger** the auto-fix by adding the \`auto-fix\` label again\n`;
-    
+
   } else if (error.code === 'TIMEOUT') {
     errorComment += `### ⏱️ What Happened\n\n`;
     errorComment += `The auto-fix agent exceeded the 90-second timeout limit.\n\n`;
@@ -997,7 +997,7 @@ async function postErrorComment(error) {
     errorComment += `1. **Simplify the issue** - Break it into smaller, focused issues\n`;
     errorComment += `2. **Reduce file count** - Specify fewer files to modify\n`;
     errorComment += `3. **Manual implementation** - Complex changes may require manual work\n`;
-    
+
   } else {
     errorComment += `### 🛠️ How to Fix\n\n`;
     errorComment += `1. **Check the GitHub Actions logs** for detailed error information\n`;
@@ -1005,21 +1005,21 @@ async function postErrorComment(error) {
     errorComment += `3. **Try manual implementation** - Some fixes may be too complex for automation\n`;
     errorComment += `4. **Report to maintainers** if this seems like a bug in the automation system\n`;
   }
-  
+
   errorComment += `\n---\n\n`;
   errorComment += `### 📚 Additional Resources\n\n`;
   errorComment += `- **Workflow Run**: [View detailed logs](../../actions)\n`;
   errorComment += `- **Auto-Fix Documentation**: Check the repository README for auto-fix requirements\n`;
   errorComment += `- **Manual Fix Guide**: Follow the standard PR process for manual fixes\n\n`;
   errorComment += `> 💬 **Need Help?** Comment on this issue with questions or tag a maintainer.\n`;
-  
+
   await github.rest.issues.createComment({
     owner,
     repo,
     issue_number: parseInt(ISSUE_NUMBER, 10),
     body: errorComment,
   });
-  
+
   // Add automation-failed label with detailed reason
   await github.rest.issues.addLabels({
     owner,
@@ -1027,7 +1027,7 @@ async function postErrorComment(error) {
     issue_number: parseInt(ISSUE_NUMBER, 10),
     labels: ['automation-failed'],
   });
-  
+
   console.log(`[Auto-Fix] Posted detailed error comment (${error.code}) and added automation-failed label`);
 }
 
