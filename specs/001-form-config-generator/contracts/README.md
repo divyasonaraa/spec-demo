@@ -5,7 +5,7 @@
 
 ## Overview
 
-All TypeScript interface definitions are documented in **data-model.md** which serves as the complete contract specification for this feature.
+All TypeScript interface definitions are documented in **data-model.md**, which serves as the complete contract specification for this feature.
 
 ## Core Contracts
 
