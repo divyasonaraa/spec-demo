@@ -1303,6 +1303,8 @@ class PromptBuilder {
    * Ultra-compact prompt for GitHub Models (8k limit)
    * ~400 tokens overhead, maximizes file content space
    * NOW INCLUDES: Critical architectural rules
+   * 
+   * SIMPLIFIED: Returns to original working format with architecture awareness
    */
   buildCompactPrompt(issue, triage, fileContents) {
     const fw = this.context.framework;
@@ -1326,6 +1328,32 @@ class PromptBuilder {
     // Compact issue description (max 300 chars)
     const issueDesc = (issue.body || '').slice(0, 300).replace(/\n+/g, ' ');
 
+    // Check if files were truncated (marked with [partial])
+    const hasPartialFiles = filesSection.includes('[partial]');
+
+    // For simple text fixes with no partial files, use the simple original format
+    // For complex changes or partial files, use search_replace format
+    if (hasPartialFiles) {
+      return `Fix #${issue.number}: ${issue.title}
+${issueDesc}
+
+${fwHint}
+${archRules}
+
+${filesSection}
+
+⚠️ Some files were truncated. You MUST use search_replace format for targeted edits.
+
+Return JSON:
+{"file_changes":[{"path":"...","search_replace":[{"search":"exact text to find","replace":"replacement text"}],"change_summary":"..."}],"commit_message":"fix: ...\\n\\nFixes #${issue.number}"}
+
+Rules:
+- search must be EXACT text from file (copy-paste)
+- Include enough context to uniquely match
+- Never invent content you haven't seen`;
+    }
+
+    // Simple format for complete files - this is what WORKED before
     return `Fix #${issue.number}: ${issue.title}
 ${issueDesc}
 
@@ -1334,20 +1362,10 @@ ${archRules}
 
 ${filesSection}
 
-Return JSON with EITHER full content OR diff-based changes:
+Return JSON:
+{"file_changes":[{"path":"...","content":"FULL file","change_summary":"..."}],"commit_message":"fix: ...\\n\\nFixes #${issue.number}"}
 
-Option 1 - For SMALL files (under 100 lines): Full replacement
-{"file_changes":[{"path":"...","content":"FULL file content","change_summary":"..."}],"commit_message":"fix: ..."}
-
-Option 2 - For LARGE files or SIMPLE fixes (typos, single-line changes): Use search/replace
-{"file_changes":[{"path":"...","search_replace":[{"search":"exact text to find","replace":"replacement text"}],"change_summary":"..."}],"commit_message":"fix: ..."}
-
-CRITICAL RULES:
-- For typo fixes, config changes, single-line edits: ALWAYS use search_replace (Option 2)
-- search must be EXACT text from the file (including whitespace)
-- If file content was truncated, you MUST use search_replace
-- Never invent/hallucinate file content you haven't seen
-- commit_message format: "fix: description\\n\\nFixes #${issue.number}"`;
+Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code only.`;
   }
 
   /**
