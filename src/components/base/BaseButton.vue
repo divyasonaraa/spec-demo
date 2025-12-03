@@ -50,7 +50,7 @@ const buttonClasses = computed(() => {
             classes.push('bg-error-600 text-white hover:bg-error-700 focus:ring-error-500')
             break
         case 'ghost':
-            classes.push('bg-transparent text-gray-700 hover:bg-gray-100 focus:ring-gray-500')
+            classes.push('bg-transparent text-gray-300 hover:bg-gray-100 focus:ring-gray-500')
             break
     }
 

@@ -34,7 +34,7 @@
 
         <!-- Progress text -->
         <p class="text-center text-sm text-gray-600 mt-2">
-            Step {{ currentStep + 1 }} of {{ steps.length }}
+            Step {{ currentStep }} of {{ steps.length }}
         </p>
     </div>
 </template>
