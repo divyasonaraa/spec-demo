@@ -40,7 +40,7 @@
         <!-- Navigation buttons -->
         <div class="flex justify-between pt-4 border-t border-gray-200">
             <!-- Previous button - always enabled to allow editing previous steps -->
-            <BaseButton v-if="isMultiStep && !multiStep?.isFirstStep" type="button" variant="secondary"
+            <BaseButton v-if="isMultiStep && formState.currentStep > 0" type="button" variant="secondary"
                 @click="handlePrevious">
                 Previous
             </BaseButton>
