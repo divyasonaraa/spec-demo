@@ -237,13 +237,13 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
 
   console.log('[Auto-Fix] Sending direct fix request to AI...');
 
-  // Get AI response
+  // Get AI response with increased token limit and adjusted temperature for production code
   const response = await ai.generateText({
     messages: [
       { role: 'user', content: prompt }
     ],
-    temperature: 0.2,
-    max_tokens: 4000
+    temperature: 0.1, // Lower temperature for more consistent, reliable code
+    max_tokens: 8000  // Increased for comprehensive fixes with full file content
   });
 
   // Parse response JSON
@@ -277,6 +277,7 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
 
 /**
  * Build comprehensive prompt for direct fix generation
+ * Enhanced for mature, production-ready fixes with full context
  */
 function buildDirectFixPrompt(issue, triage, conventions, fileContents, projectContext) {
   const fileContexts = fileContents.map(fc => {
@@ -288,71 +289,153 @@ function buildDirectFixPrompt(issue, triage, conventions, fileContents, projectC
     ? `\n## Project Structure\n\`\`\`\n${projectContext.structure}\n\`\`\``
     : '';
 
-  return `You are an expert software engineer. Fix this GitHub issue by modifying ONLY the existing files in this project.
+  // Build dependencies context for better understanding
+  const dependenciesContext = projectContext.dependencies
+    ? `\n## Key Dependencies\n${Object.keys(projectContext.dependencies).slice(0, 15).map(dep => `- ${dep}: ${projectContext.dependencies[dep]}`).join('\n')}`
+    : '';
+
+  return `You are a SENIOR SOFTWARE ENGINEER with 10+ years of experience. You write production-quality code that is:
+- Maintainable and follows best practices
+- Thoroughly considers edge cases and error handling
+- Consistent with existing codebase patterns
+- Well-structured with proper separation of concerns
+- Robust and handles all scenarios mentioned in the issue
 
 ## CRITICAL: Project Context
 - **Framework**: ${projectContext.framework}
 - **Language**: ${projectContext.language}
 - **Project Type**: ${projectContext.projectType}
+${dependenciesContext}
 ${projectContext.framework === 'Vue.js' ? `
-**Vue.js Specific**:
+**Vue.js Specific Requirements**:
 - Use Vue 3 Composition API with <script setup> syntax
-- Use TypeScript for .vue and .ts files
-- Components are in src/components/
-- Composables are in src/composables/
-- DO NOT create React components (no useState, useEffect, jsx)
-- DO NOT create new files unless absolutely necessary
-- ONLY modify existing files that are provided below
+- Use TypeScript for type safety in .vue and .ts files
+- Follow Vue 3 best practices (reactive refs, computed, watch patterns)
+- Components should be in src/components/ with proper naming (PascalCase)
+- Composables should be in src/composables/ and start with "use" prefix
+- Props should have TypeScript interfaces defined
+- Emits should be explicitly declared with defineEmits<>()
+- Use provide/inject for dependency injection when appropriate
+- DO NOT use Options API (no data(), methods, computed as object)
+- DO NOT create React components (no useState, useEffect, jsx/tsx syntax)
+- DO NOT create new files unless the issue explicitly requires it
+- Handle reactivity properly (use .value for refs, avoid losing reactivity)
 ` : ''}
 ${projectContext.framework === 'React' ? `
-**React Specific**:
-- Use functional components with hooks
-- DO NOT create Vue components
+**React Specific Requirements**:
+- Use functional components with hooks (no class components)
+- Follow React best practices (proper hook dependencies, memoization)
+- Use TypeScript for prop types and state
+- DO NOT create Vue components (no <template>, no ref(), no reactive())
 ` : ''}
 ${structureSummary}
 
-## Issue Context
+## Issue Context - READ CAREFULLY
 - **Issue #${issue.number}**: ${issue.title}
-- **Details**: ${issue.body || 'No additional details provided'}
+- **Full Description**: 
+${issue.body || 'No additional details provided'}
+
 - **Classification**: ${triage.classification}
 - **Risk Level**: ${triage.risk}
-- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'See files below'}
+- **Expected Files to Modify**: ${(triage.affectedFiles || []).join(', ') || 'Inferred from context below'}
 
-## Current File Contents (MODIFY THESE FILES ONLY)
+## Current File Contents (THESE ARE YOUR WORKING FILES)
 ${fileContexts || 'ERROR: No files provided - cannot proceed'}
 
-## Coding Standards
+## Coding Standards (FOLLOW EXACTLY)
 - Indentation: ${conventions.indent_style === 'space' ? `${conventions.indent_size} spaces` : 'tabs'}
 - Line endings: ${conventions.end_of_line.toUpperCase()}
 - Final newline: ${conventions.insert_final_newline ? 'required' : 'optional'}
+- Code style: Match the existing style in each file exactly
+- Comments: Preserve existing comments, add new ones only for complex logic
 
-## Requirements
-1. **ONLY modify files shown above** - Do not create new files unless the fix absolutely requires it
-2. **Match existing patterns** - Follow the same code style as existing files
-3. **Framework consistency** - Use ${projectContext.framework} patterns (NOT other frameworks)
-4. **Minimal changes** - Only fix what's needed to resolve the issue
-5. **Preserve formatting** - Keep existing code style, comments, whitespace
-6. **No refactoring** - Don't improve unrelated code
+## MATURE DEVELOPER REQUIREMENTS - CRITICAL
+1. **Understand the Root Cause**: Don't just patch symptoms. Understand WHY the issue exists.
 
-## Output Format (JSON only, no markdown)
+2. **Consider Edge Cases**: Think about:
+   - Null/undefined values
+   - Empty arrays/objects
+   - Invalid inputs (wrong types, out of bounds)
+   - Async timing issues
+   - Browser compatibility (if frontend)
+   - Race conditions
+
+3. **Error Handling**: Add proper error handling where appropriate:
+   - Try-catch blocks for risky operations
+   - Validation before processing
+   - Graceful degradation
+   - Informative error messages
+
+4. **Type Safety** (for TypeScript projects):
+   - Use proper TypeScript types (not 'any')
+   - Define interfaces for complex objects
+   - Use union types for multiple valid types
+   - Add JSDoc comments for JavaScript files
+
+5. **Code Quality**:
+   - No magic numbers (use named constants)
+   - Descriptive variable/function names
+   - Single responsibility principle
+   - DRY (Don't Repeat Yourself)
+   - Keep functions focused and testable
+
+6. **Framework Best Practices**:
+   ${projectContext.framework === 'Vue.js' ? `
+   - Avoid unnecessary re-renders (use computed for derived state)
+   - Handle component lifecycle properly (onMounted, onUnmounted for cleanup)
+   - Use proper prop validation with TypeScript
+   - Emit events with descriptive names and proper payload types
+   - For forms: handle validation, error states, loading states
+   ` : ''}
+
+7. **Performance Considerations**:
+   - Avoid unnecessary computations
+   - Use memoization where appropriate
+   - Consider large dataset handling
+   - Debounce/throttle user inputs if needed
+
+8. **Accessibility** (for UI components):
+   - Proper ARIA labels
+   - Keyboard navigation support
+   - Screen reader friendly
+   - Semantic HTML
+
+9. **Complete the Fix**:
+   - Address ALL aspects mentioned in the issue
+   - Don't leave TODOs or half-implemented features
+   - Ensure the fix is production-ready
+
+10. **Consistency**:
+    - Match existing code patterns in the file
+    - Use same naming conventions
+    - Follow same import/export style
+    - Preserve existing structure
+
+## Output Format (JSON only, no markdown wrapper, no explanation text)
 {
   "file_changes": [
     {
       "path": "path/to/existing/file.ext",
-      "content": "full updated file content here",
-      "change_summary": "Brief description of change"
+      "content": "COMPLETE FILE CONTENT with your fix integrated - include ALL lines, not just changes",
+      "change_summary": "Detailed summary: what changed, why, and what edge cases were considered"
     }
   ],
-  "commit_message": "type(scope): description\\n\\nFixes #${issue.number}"
+  "commit_message": "type(scope): clear description of what was fixed\\n\\nDetailed explanation:\\n- Root cause addressed\\n- Edge cases handled\\n- Improvements made\\n\\nFixes #${issue.number}"
 }
 
-**IMPORTANT**: 
-- The path MUST be one of the files shown above (existing files)
-- Include ALL lines of each file (complete content)
-- Use proper escape sequences for special characters in JSON strings
-- For ${projectContext.framework} project - use ${projectContext.framework} patterns only!
+**CRITICAL VALIDATIONS BEFORE RESPONDING**:
+✓ Does your fix address the ROOT CAUSE, not just symptoms?
+✓ Have you considered edge cases (null, empty, invalid inputs)?
+✓ Is error handling appropriate for risky operations?
+✓ Does the code match the existing style and patterns?
+✓ Are you using ${projectContext.framework} patterns (NOT other frameworks)?
+✓ Is the fix complete and production-ready (no TODOs)?
+✓ Have you included ALL lines of each modified file (not just diff)?
+✓ Is the commit message descriptive and follows conventional commits?
+✓ For TypeScript: Are types properly defined (no 'any' abuse)?
+✓ For Vue 3: Are you using Composition API correctly with <script setup>?
 
-Generate the fix now:`;
+Generate the COMPLETE, PRODUCTION-READY fix now:`;
 }
 
 /**
@@ -454,6 +537,7 @@ async function fetchProjectContext(github, owner, repo, ref) {
 
 /**
  * Infer affected files from issue content and project context
+ * Enhanced with deeper analysis and related file detection
  */
 async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
   const issueText = `${issue.title} ${issue.body || ''}`.toLowerCase();
@@ -461,40 +545,145 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
 
   // Keywords to file mappings for Vue.js projects
   const vueFileMappings = {
-    // Form-related
-    'form': ['src/components/form/FormRenderer.vue', 'src/components/form/FieldWrapper.vue', 'src/composables/useFormValidation.ts'],
-    'validation': ['src/composables/useFormValidation.ts', 'src/components/form/ValidationError.vue', 'src/components/form/FieldWrapper.vue'],
-    'error': ['src/components/form/ValidationError.vue', 'src/composables/useFormValidation.ts', 'src/components/form/FieldWrapper.vue'],
-    'input': ['src/components/base/BaseInput.vue', 'src/components/form/FieldWrapper.vue'],
-    'field': ['src/components/form/FieldWrapper.vue', 'src/components/form/FormRenderer.vue'],
-    'submit': ['src/composables/useFormSubmission.ts', 'src/components/form/FormRenderer.vue'],
+    // Form-related (with related dependencies)
+    'form': [
+      'src/components/form/FormRenderer.vue',
+      'src/components/form/FieldWrapper.vue',
+      'src/composables/useFormValidation.ts',
+      'src/composables/useFormSubmission.ts',
+      'src/types/formConfig.ts'
+    ],
+    'validation': [
+      'src/composables/useFormValidation.ts',
+      'src/components/form/ValidationError.vue',
+      'src/components/form/FieldWrapper.vue',
+      'src/services/validation.service.ts'
+    ],
+    'error': [
+      'src/components/form/ValidationError.vue',
+      'src/composables/useFormValidation.ts',
+      'src/components/form/FieldWrapper.vue',
+      'src/components/common/ErrorBoundary.vue'
+    ],
+    'input': [
+      'src/components/base/BaseInput.vue',
+      'src/components/form/FieldWrapper.vue',
+      'src/components/form/FormRenderer.vue'
+    ],
+    'field': [
+      'src/components/form/FieldWrapper.vue',
+      'src/components/form/FormRenderer.vue',
+      'src/types/formConfig.ts'
+    ],
+    'submit': [
+      'src/composables/useFormSubmission.ts',
+      'src/components/form/FormRenderer.vue',
+      'src/services/api.service.ts'
+    ],
 
     // Component-related
     'button': ['src/components/base/BaseButton.vue'],
-    'select': ['src/components/base/BaseSelect.vue'],
-    'checkbox': ['src/components/base/BaseCheckbox.vue'],
-    'radio': ['src/components/base/BaseRadio.vue'],
-    'textarea': ['src/components/base/BaseTextarea.vue'],
+    'select': ['src/components/base/BaseSelect.vue', 'src/components/form/FieldWrapper.vue'],
+    'checkbox': ['src/components/base/BaseCheckbox.vue', 'src/components/form/FieldWrapper.vue'],
+    'radio': ['src/components/base/BaseRadio.vue', 'src/components/form/FieldWrapper.vue'],
+    'textarea': ['src/components/base/BaseTextarea.vue', 'src/components/form/FieldWrapper.vue'],
 
-    // Step/wizard-related
-    'step': ['src/components/form/FormStep.vue', 'src/components/form/StepIndicator.vue', 'src/composables/useMultiStep.ts'],
-    'multi-step': ['src/composables/useMultiStep.ts', 'src/components/form/FormStep.vue'],
+    // Step/wizard-related (with navigation dependencies)
+    'step': [
+      'src/components/form/FormStep.vue',
+      'src/components/form/StepIndicator.vue',
+      'src/composables/useMultiStep.ts',
+      'src/components/form/FormRenderer.vue'
+    ],
+    'multi-step': [
+      'src/composables/useMultiStep.ts',
+      'src/components/form/FormStep.vue',
+      'src/components/form/StepIndicator.vue',
+      'src/components/form/FormRenderer.vue'
+    ],
+    'navigation': [
+      'src/composables/useMultiStep.ts',
+      'src/components/form/FormStep.vue',
+      'src/components/form/StepIndicator.vue'
+    ],
+    'previous': [
+      'src/composables/useMultiStep.ts',
+      'src/components/form/FormStep.vue'
+    ],
+    'next': [
+      'src/composables/useMultiStep.ts',
+      'src/components/form/FormStep.vue'
+    ],
 
     // Conditional-related
-    'conditional': ['src/composables/useConditionalFields.ts'],
-    'dependency': ['src/composables/useFieldDependency.ts'],
+    'conditional': [
+      'src/composables/useConditionalFields.ts',
+      'src/composables/useFieldDependency.ts',
+      'src/components/form/FormRenderer.vue'
+    ],
+    'dependency': [
+      'src/composables/useFieldDependency.ts',
+      'src/composables/useConditionalFields.ts',
+      'src/components/form/FieldWrapper.vue'
+    ],
+    'show': [
+      'src/composables/useConditionalFields.ts',
+      'src/components/form/FieldWrapper.vue'
+    ],
+    'hide': [
+      'src/composables/useConditionalFields.ts',
+      'src/components/form/FieldWrapper.vue'
+    ],
 
     // Demo/view-related
-    'demo': ['src/views/DemoView.vue'],
-    'config': ['src/components/demo/ConfigEditor.vue', 'src/components/demo/ConfigValidator.vue'],
+    'demo': [
+      'src/views/DemoView.vue',
+      'src/components/demo/ConfigEditor.vue',
+      'src/components/demo/ConfigValidator.vue'
+    ],
+    'config': [
+      'src/components/demo/ConfigEditor.vue',
+      'src/components/demo/ConfigValidator.vue',
+      'src/utils/configParser.ts',
+      'src/types/formConfig.ts'
+    ],
 
     // Payload-related
-    'payload': ['src/components/payload/PayloadPreview.vue', 'src/components/payload/JsonDisplay.vue'],
-    'json': ['src/components/payload/JsonDisplay.vue'],
+    'payload': [
+      'src/components/payload/PayloadPreview.vue',
+      'src/components/payload/JsonDisplay.vue',
+      'src/utils/payloadBuilder.ts'
+    ],
+    'json': [
+      'src/components/payload/JsonDisplay.vue',
+      'src/utils/payloadBuilder.ts'
+    ],
+    'output': [
+      'src/components/payload/PayloadPreview.vue',
+      'src/composables/useFormSubmission.ts'
+    ],
 
     // Toast/notification
     'toast': ['src/components/common/ToastNotification.vue'],
     'notification': ['src/components/common/ToastNotification.vue'],
+    'alert': ['src/components/common/ToastNotification.vue'],
+
+    // Data source
+    'datasource': [
+      'src/composables/useDataSource.ts',
+      'src/services/api.service.ts',
+      'src/types/formConfig.ts'
+    ],
+    'api': [
+      'src/services/api.service.ts',
+      'src/composables/useDataSource.ts',
+      'src/composables/useFormSubmission.ts'
+    ],
+
+    // Styling/UI
+    'style': ['src/style.css', 'src/assets/styles/main.css'],
+    'css': ['src/style.css', 'src/assets/styles/main.css'],
+    'tailwind': ['tailwind.config.js', 'src/style.css'],
   };
 
   // React file mappings (if needed)
@@ -517,9 +706,18 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     }
   }
 
+  // Extract explicitly mentioned file paths from issue body
+  const filePathRegex = /(?:src\/[\w\/\-\.]+\.\w+)|(?:[\w\/\-\.]+\.vue)|(?:[\w\/\-\.]+\.ts)|(?:[\w\/\-\.]+\.js)/gi;
+  const mentionedFiles = (issue.body || '').match(filePathRegex) || [];
+  for (const file of mentionedFiles) {
+    if (!filesToFetch.includes(file)) {
+      filesToFetch.push(file);
+    }
+  }
+
   // Validate files exist (and fetch only existing ones)
   const validFiles = [];
-  for (const file of filesToFetch.slice(0, 5)) { // Limit to 5 files
+  for (const file of filesToFetch.slice(0, 8)) { // Increased limit to 8 files for better context
     try {
       await github.rest.repos.getContent({
         owner,
@@ -530,6 +728,32 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
       validFiles.push(file);
     } catch (error) {
       // File doesn't exist, skip
+    }
+  }
+
+  // If still no files, use generic fallback based on classification
+  if (validFiles.length === 0) {
+    const fallbackMappings = {
+      'BUG': ['src/components/form/FormRenderer.vue', 'src/components/form/FieldWrapper.vue'],
+      'FEATURE': ['src/components/form/FormRenderer.vue'],
+      'DOCS': ['README.md'],
+      'CHORE': ['package.json']
+    };
+
+    const fallbackFiles = fallbackMappings[projectContext.classification] || ['src/App.vue'];
+    for (const file of fallbackFiles) {
+      try {
+        await github.rest.repos.getContent({
+          owner,
+          repo,
+          path: file,
+          ref: DEFAULT_BRANCH
+        });
+        validFiles.push(file);
+        break; // Just get one fallback file
+      } catch (error) {
+        // Try next fallback
+      }
     }
   }
 

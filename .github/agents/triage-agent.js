@@ -252,16 +252,23 @@ function formatTriageComment(triageResult) {
   markdown += `**Auto-Fix Decision**: `;
   switch (triageResult.autoFixDecision) {
     case 'AUTO_FIX':
-      markdown += `✅ Approved for automatic fix\n\n`;
-      markdown += `This issue will be automatically fixed and a PR will be created.\n\n`;
+      markdown += `✅ Eligible for automatic fix\n\n`;
+      markdown += `**To proceed with auto-fix**: Add the \`auto-fix\` or \`auto-fix-approved\` label to this issue.\n\n`;
+      markdown += `Once labeled, the system will automatically:\n`;
+      markdown += `1. Generate a comprehensive fix\n`;
+      markdown += `2. Run validation checks (lint, type-check)\n`;
+      markdown += `3. Create a pull request\n\n`;
+      markdown += `*Note: Auto-fix will only proceed if you explicitly add the approval label. This ensures human oversight before any automated changes.*\n\n`;
       break;
     case 'DRAFT_PR':
-      markdown += `📝 Draft PR will be created\n\n`;
-      markdown += `This issue requires human review before merging. A draft PR will be created for your review.\n\n`;
+      markdown += `📝 Eligible for draft PR\n\n`;
+      markdown += `**To proceed**: Add the \`auto-fix\` or \`auto-fix-approved\` label to this issue.\n\n`;
+      markdown += `This issue requires human review before merging. A draft PR will be created for your review, but it will need manual approval before merging.\n\n`;
       break;
     case 'HUMAN_REVIEW_REQUIRED':
       markdown += `👤 Human review required\n\n`;
       markdown += `This issue cannot be automatically fixed. A maintainer should review and implement manually.\n\n`;
+      markdown += `**Reason**: The issue involves security-sensitive changes, high-risk modifications, or complex logic that requires human judgment.\n\n`;
       break;
   }
 
