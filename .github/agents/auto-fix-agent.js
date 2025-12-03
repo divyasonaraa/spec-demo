@@ -7,6 +7,7 @@
  * - Dynamic file discovery (no hardcoded mappings)
  * - AI-powered file inference using repository analysis
  * - Scalable design with pluggable components
+ * - Modular file change handling with multiple strategies
  * - Comprehensive error handling and recovery
  * 
  * Input: TriageResult from triage agent
@@ -22,10 +23,12 @@ import { getAIClient } from './shared/ai-client.js';
 import { AutoFixError } from './shared/error-handler.js';
 import * as gitOps from './shared/git-operations.js';
 import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-constraints.js';
-// NEW: Import modular architecture validation system
+// Import modular architecture validation system
 import { SpecificationParser, DEFAULT_SPEC_PATHS } from './shared/spec-parser.js';
 import { createValidator } from './shared/architecture-validator.js';
 import { createDefaultRegistry, Severity } from './shared/architecture-rules.js';
+// Import modular file change handler
+import { createFileChangeHandler, FileChangeError } from './shared/file-change-handler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1331,10 +1334,20 @@ ${archRules}
 
 ${filesSection}
 
-Return JSON:
-{"file_changes":[{"path":"...","content":"FULL file","change_summary":"..."}],"commit_message":"fix: ...\\n\\nFixes #${issue.number}"}
+Return JSON with EITHER full content OR diff-based changes:
 
-Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code only. FOLLOW ARCHITECTURE RULES ABOVE.`;
+Option 1 - For SMALL files (under 100 lines): Full replacement
+{"file_changes":[{"path":"...","content":"FULL file content","change_summary":"..."}],"commit_message":"fix: ..."}
+
+Option 2 - For LARGE files or SIMPLE fixes (typos, single-line changes): Use search/replace
+{"file_changes":[{"path":"...","search_replace":[{"search":"exact text to find","replace":"replacement text"}],"change_summary":"..."}],"commit_message":"fix: ..."}
+
+CRITICAL RULES:
+- For typo fixes, config changes, single-line edits: ALWAYS use search_replace (Option 2)
+- search must be EXACT text from the file (including whitespace)
+- If file content was truncated, you MUST use search_replace
+- Never invent/hallucinate file content you haven't seen
+- commit_message format: "fix: description\\n\\nFixes #${issue.number}"`;
   }
 
   /**
@@ -1438,6 +1451,10 @@ ${archContext}
 ${filesSection}
 
 ## Output Format
+
+Choose the appropriate format based on the fix type:
+
+### Option 1: Full File Replacement (for new files or complete rewrites)
 \`\`\`json
 {
   "file_changes": [
@@ -1451,14 +1468,30 @@ ${filesSection}
 }
 \`\`\`
 
-## Checklist
-- [ ] Root cause fixed (not just symptoms)
-- [ ] Edge cases handled (null, undefined, empty, invalid)
-- [ ] Error handling added where needed
-- [ ] Types are correct (no \`any\`)
-- [ ] Matches existing code style
-- [ ] Complete solution (no TODOs)
-- [ ] **FOLLOWS PROJECT ARCHITECTURE** (see rules above)`;
+### Option 2: Search/Replace (PREFERRED for typos, single-line fixes, targeted edits)
+\`\`\`json
+{
+  "file_changes": [
+    {
+      "path": "path/to/file",
+      "search_replace": [
+        {"search": "exact text to find", "replace": "replacement text"}
+      ],
+      "change_summary": "What changed and why"
+    }
+  ],
+  "commit_message": "type(scope): description\\n\\nFixes #${issue.number}"
+}
+\`\`\`
+
+## CRITICAL Rules
+- For typo fixes, use search_replace with EXACT text from the file
+- If file content was truncated/partial, you MUST use search_replace
+- NEVER invent or hallucinate file content you haven't seen
+- search text must match EXACTLY (including whitespace)
+- Root cause fixed (not just symptoms)
+- Matches existing code style
+- **FOLLOWS PROJECT ARCHITECTURE** (see rules above)`;
   }
 
   /**
@@ -2001,10 +2034,10 @@ class AutoFixAgent {
       console.log('[Auto-Fix] ✓ Architecture validation passed');
     }
 
-    // Apply changes
-    for (const change of fileChanges) {
-      await this.applyFileChange(change);
-    }
+    // Apply changes using modular handler
+    console.log(`[Auto-Fix] Applying ${fileChanges.length} file changes...`);
+    const changeResults = await this.applyFileChanges(fileChanges);
+    console.log(`[Auto-Fix] ✓ Applied ${changeResults.successful} changes`);
 
     // Run validation
     const validationCommands = ValidationRunner.selectCommands(
@@ -2194,15 +2227,61 @@ class AutoFixAgent {
     };
   }
 
-  async applyFileChange(change) {
-    // Create directory if needed
-    const dir = dirname(change.path);
-    if (dir && dir !== '.' && !existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+  /**
+   * Apply file changes using the modular FileChangeHandler
+   * Supports multiple change strategies: search_replace, full content, insert, patch
+   * 
+   * @param {Array} fileChanges Array of change objects
+   * @returns {Object} Summary of applied changes
+   */
+  async applyFileChanges(fileChanges) {
+    const handler = createFileChangeHandler({
+      validateBeforeApply: true,
+      allowHallucination: false,
+    });
+
+    const summary = await handler.applyChanges(fileChanges);
+
+    // Check for failures
+    if (summary.failed > 0) {
+      const failedResults = summary.results.filter(r => !r.success);
+      const firstError = failedResults[0];
+      
+      throw new AutoFixError(
+        firstError.errorCode || 'FILE_CHANGE_FAILED',
+        `Failed to apply ${summary.failed} file change(s): ${firstError.errors.join(', ')}`,
+        {
+          failed: failedResults.map(r => ({ path: r.path, errors: r.errors })),
+          successful: summary.successful,
+          total: summary.total,
+        }
+      );
     }
 
-    writeFileSync(change.path, change.content, 'utf8');
-    console.log(`[Auto-Fix] ✓ Updated: ${change.path}`);
+    return summary;
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * Delegates to the modular handler
+   */
+  async applyFileChange(change) {
+    const handler = createFileChangeHandler({
+      validateBeforeApply: true,
+      allowHallucination: false,
+    });
+
+    const result = await handler.applyChange(change);
+
+    if (!result.success) {
+      throw new AutoFixError(
+        result.errorCode || 'FILE_CHANGE_FAILED',
+        result.errors.join(', '),
+        result.errorDetails
+      );
+    }
+
+    return result;
   }
 
   async commitAndPush(filePaths, message, branchName) {
