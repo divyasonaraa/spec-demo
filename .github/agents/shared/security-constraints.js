@@ -20,27 +20,32 @@ export const SECURITY_KEYWORDS = [
   /\b(certificate|cert|ssl|tls)\b/i,
   /\b(signing[_\s-]?key|encryption[_\s-]?key)\b/i,
   /\b(master[_\s-]?password|root[_\s-]?password)\b/i,
-  
+
   // Sensitive Data
   /\b(ssn|social[_\s-]?security)\b/i,
   /\b(credit[_\s-]?card|ccn|cvv)\b/i,
   /\b(encryption|decrypt|cipher|encrypt)\b/i,
   /\b(pii|personal[_\s-]?identifiable[_\s-]?information)\b/i,
   /\b(gdpr|hipaa|pci[_\s-]?dss)\b/i,
-  
+
   // Security Operations
   /\b(security|vulnerability|exploit|cve)\b/i,
   /\b(permission|role|privilege|acl)\b/i,
   /\b(session|cookie|csrf)\b/i,
   /\b(xss|sql[_\s-]?injection|injection)\b/i,
   /\b(cors|same[_\s-]?origin)\b/i,
-  
+
   // Infrastructure
   /\b(database[_\s-]?url|db[_\s-]?connection)\b/i,
   /\b(connection[_\s-]?string)\b/i,
   /\b(admin|root|sudo|superuser)\b/i,
   /\b(production|prod[_\s-]?env)\b/i,
   /\b(api[_\s-]?endpoint|webhook[_\s-]?url)\b/i,
+  // Environment files and references
+  /\b\.env\b/i,
+  /\benv(\.\w+)?\b/i,
+  /\benvironment\s*file\b/i,
+  /\bconfig\s*env\b/i,
 ];
 
 /**
@@ -55,7 +60,7 @@ export const SECURITY_FILE_PATTERNS = [
   /config\/credentials/i,
   /secrets\//i,
   /\.secrets/i,
-  
+
   // Keys & Certificates
   /\.pem$/i,
   /\.key$/i,
@@ -65,7 +70,7 @@ export const SECURITY_FILE_PATTERNS = [
   /\.pfx$/i,
   /id_rsa/i,
   /id_dsa/i,
-  
+
   // Authentication Files
   /auth/i,
   /login/i,
@@ -74,7 +79,7 @@ export const SECURITY_FILE_PATTERNS = [
   /jwt/i,
   /passport/i,
   /middleware\/auth/i,
-  
+
   // Deployment & Infrastructure
   /deploy/i,
   /deployment/i,
@@ -85,14 +90,14 @@ export const SECURITY_FILE_PATTERNS = [
   /docker-compose\.prod/i,
   /helm\//i,
   /ansible\//i,
-  
+
   // Database
   /migration/i,
   /schema/i,
   /seed/i,
   /db\/migrate/i,
   /alembic\//i,
-  
+
   // Security-specific
   /security/i,
   /permissions/i,
@@ -101,7 +106,7 @@ export const SECURITY_FILE_PATTERNS = [
   /\.htpasswd/i,
   /cors/i,
   /firewall/i,
-  
+
   // CI/CD (already blocked in code-agent but double-check here)
   /^\.github\/workflows/i,
   /\.gitlab-ci/i,
@@ -227,17 +232,17 @@ export const FILE_SENSITIVITY_SCORES = {
   'config/secrets.js': 10,
   'auth.js': 9,
   'login.js': 9,
-  
+
   // High sensitivity
   'package.json': 8,
   'docker-compose.yml': 7,
   'Dockerfile': 7,
-  
+
   // Medium sensitivity
   'tsconfig.json': 5,
   'vite.config.js': 5,
   'webpack.config.js': 5,
-  
+
   // Low sensitivity
   '.md': 1,
   '.txt': 1,
@@ -252,7 +257,7 @@ export const FILE_SENSITIVITY_SCORES = {
  */
 export function checkSecurityKeywords(text) {
   const matches = [];
-  
+
   for (const pattern of SECURITY_KEYWORDS) {
     if (pattern.test(text)) {
       matches.push({
@@ -261,7 +266,7 @@ export function checkSecurityKeywords(text) {
       });
     }
   }
-  
+
   return matches;
 }
 
@@ -272,7 +277,7 @@ export function checkSecurityKeywords(text) {
  */
 export function checkSecurityFilePath(filePath) {
   const matches = [];
-  
+
   for (const pattern of SECURITY_FILE_PATTERNS) {
     if (pattern.test(filePath)) {
       matches.push({
@@ -280,7 +285,7 @@ export function checkSecurityFilePath(filePath) {
       });
     }
   }
-  
+
   return matches;
 }
 
@@ -292,16 +297,16 @@ export function checkSecurityFilePath(filePath) {
  */
 export function checkRiskyChangeTypes(description, filePaths = []) {
   const matches = [];
-  
+
   for (const changeType of RISKY_CHANGE_TYPES) {
     // Check description against patterns
     const descriptionMatch = changeType.patterns.some(pattern => pattern.test(description));
-    
+
     // Check file paths against patterns
     const fileMatch = filePaths.some(filePath =>
       changeType.patterns.some(pattern => pattern.test(filePath))
     );
-    
+
     if (descriptionMatch || fileMatch) {
       matches.push({
         type: changeType.name,
@@ -309,7 +314,7 @@ export function checkRiskyChangeTypes(description, filePaths = []) {
       });
     }
   }
-  
+
   return matches;
 }
 
@@ -325,26 +330,26 @@ export function getFileSensitivityScore(filePath) {
       return score;
     }
   }
-  
+
   // Check security file patterns
   const securityMatches = checkSecurityFilePath(filePath);
   if (securityMatches.length > 0) {
     return 8; // High sensitivity for security-related files
   }
-  
+
   // Default sensitivity based on file type
   if (filePath.endsWith('.md') || filePath.endsWith('.txt')) {
     return 1; // Documentation is low risk
   }
-  
+
   if (filePath.includes('test/') || filePath.includes('spec/')) {
     return 2; // Test files are low-medium risk
   }
-  
+
   if (filePath.includes('config/') || filePath.includes('.config.')) {
     return 6; // Config files are medium-high risk
   }
-  
+
   return 4; // Default medium risk
 }
 
@@ -357,16 +362,16 @@ export function getFileSensitivityScore(filePath) {
  */
 export function performSecurityCheck(title, body, filePaths = []) {
   const combinedText = `${title} ${body}`;
-  
+
   const keywordMatches = checkSecurityKeywords(combinedText);
   const fileMatches = filePaths.flatMap(fp => checkSecurityFilePath(fp));
   const riskyChangeMatches = checkRiskyChangeTypes(combinedText, filePaths);
-  
-  const hasSecurityFlags = 
-    keywordMatches.length > 0 || 
-    fileMatches.length > 0 || 
+
+  const hasSecurityFlags =
+    keywordMatches.length > 0 ||
+    fileMatches.length > 0 ||
     riskyChangeMatches.length > 0;
-  
+
   return {
     hasSecurityFlags,
     keywordMatches,
