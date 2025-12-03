@@ -495,6 +495,24 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     // Toast/notification
     'toast': ['src/components/common/ToastNotification.vue'],
     'notification': ['src/components/common/ToastNotification.vue'],
+    
+    // Documentation files (universal - should work for any framework)
+    'readme': ['README.md'],
+    'documentation': ['README.md', 'docs/README.md'],
+    'license': ['LICENSE'],
+    'changelog': ['CHANGELOG.md'],
+    'contributing': ['CONTRIBUTING.md'],
+  };
+
+  // Common documentation file mappings (framework-agnostic)
+  const docFileMappings = {
+    'readme': ['README.md'],
+    'documentation': ['README.md'],
+    'docs': ['README.md'],
+    'typo': [], // Will be handled specially below
+    'license': ['LICENSE'],
+    'changelog': ['CHANGELOG.md'],
+    'contributing': ['CONTRIBUTING.md'],
   };
 
   // React file mappings (if needed)
@@ -506,7 +524,18 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
   const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings : 
                         projectContext.framework === 'React' ? reactFileMappings : {};
 
-  // Check which keywords match
+  // First check doc file mappings (higher priority for doc-related issues)
+  for (const [keyword, files] of Object.entries(docFileMappings)) {
+    if (issueText.includes(keyword)) {
+      for (const file of files) {
+        if (!filesToFetch.includes(file)) {
+          filesToFetch.push(file);
+        }
+      }
+    }
+  }
+
+  // Check which keywords match from framework mappings
   for (const [keyword, files] of Object.entries(fileMappings)) {
     if (issueText.includes(keyword)) {
       for (const file of files) {
