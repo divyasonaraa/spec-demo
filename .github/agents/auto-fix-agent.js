@@ -2246,7 +2246,7 @@ class AutoFixAgent {
     if (summary.failed > 0) {
       const failedResults = summary.results.filter(r => !r.success);
       const firstError = failedResults[0];
-      
+
       throw new AutoFixError(
         firstError.errorCode || 'FILE_CHANGE_FAILED',
         `Failed to apply ${summary.failed} file change(s): ${firstError.errors.join(', ')}`,
