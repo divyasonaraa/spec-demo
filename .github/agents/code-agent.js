@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { getGitHubClient } from './shared/github-client.js';
 import { getAIClient } from './shared/ai-client.js';
-import { AutoFixError } from './shared/error-handler.js';
+import { AutoFixError, formatErrorForComment } from './shared/error-handler.js';
 import * as gitOps from './shared/git-operations.js';
 import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-constraints.js';
 
@@ -69,43 +69,29 @@ async function main() {
     // Try to post error comment to issue
     try {
       const github = getGitHubClient();
-      const [owner, repo] = GITHUB_REPOSITORY.split('/');
-      
-      let errorComment = `## ❌ Auto-Fix Failed: Code Generation\n\n`;
-      errorComment += `**Error**: ${error.message}\n\n`;
-      
-      if (error.code === 'VALIDATION_FAILED') {
-        errorComment += `### Validation Failure\n\n`;
-        errorComment += `The automated fix was generated but failed validation checks:\n\n`;
-        if (error.details?.output) {
-          errorComment += `\`\`\`\n${error.details.output.slice(0, 1000)}\n\`\`\`\n\n`;
-        }
-        errorComment += `**Next Steps**:\n`;
-        errorComment += `- Review the validation error above\n`;
-        errorComment += `- The changes have been rolled back\n`;
-        errorComment += `- Manual fix may be required\n`;
-      } else {
-        errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n\n`;
-        errorComment += `The automation system encountered an error and has rolled back any changes.\n\n`;
-        errorComment += `A maintainer will need to investigate this issue manually.\n`;
-      }
-      
+      const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+
+      // Use centralized formatter to avoid duplication across agents
+      const errorComment = formatErrorForComment(
+        new AutoFixError(error.message, error.code || 'UNKNOWN', error.details || {}),
+        'code'
+      );
+
       await github.rest.issues.createComment({
         owner,
         repo,
-        issue_number: ISSUE_NUMBER,
+        issue_number: parseInt(ISSUE_NUMBER, 10),
         body: errorComment,
       });
-      
-      // Add automation-failed label
+
       await github.rest.issues.addLabels({
         owner,
         repo,
-        issue_number: ISSUE_NUMBER,
+        issue_number: parseInt(ISSUE_NUMBER, 10),
         labels: ['automation-failed'],
       });
-      
-      console.log('[Code Agent] Posted error comment and added automation-failed label');
+
+      console.log('[Code Agent] Posted detailed error comment and added automation-failed label');
     } catch (commentError) {
       console.error('[Code Agent] Failed to post error comment:', commentError.message);
     }
@@ -268,13 +254,13 @@ async function runCodeGeneration() {
  */
 function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
   console.log('[Code Agent] Running security pre-check...');
-  
+
   const violations = [];
-  
+
   // Check each file against security patterns
   for (const change of fileChanges) {
     const filePath = change.path;
-    
+
     // Check if file path matches security-sensitive patterns
     const fileMatches = checkSecurityFilePath(filePath);
     if (fileMatches.length > 0) {
@@ -284,7 +270,7 @@ function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
         patterns: fileMatches.map(m => m.pattern.source),
       });
     }
-    
+
     // Additional hardcoded critical patterns (CI/CD, env files, keys)
     const CRITICAL_PATTERNS = [
       { pattern: /^\.env/, reason: 'Environment configuration file' },
@@ -299,7 +285,7 @@ function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
       { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
       { pattern: /kubernetes\//, reason: 'Kubernetes configuration' },
     ];
-    
+
     for (const { pattern, reason } of CRITICAL_PATTERNS) {
       if (pattern.test(filePath)) {
         violations.push({
@@ -310,11 +296,11 @@ function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
       }
     }
   }
-  
+
   // Check for risky change types
   const filePaths = fileChanges.map(fc => fc.path);
   const riskyChanges = checkRiskyChangeTypes(`${issueTitle} ${issueBody}`, filePaths);
-  
+
   for (const riskyChange of riskyChanges) {
     // Block critical risky changes
     const BLOCKED_CHANGE_TYPES = ['DATABASE_MIGRATION', 'CI_CD_PIPELINE', 'INFRASTRUCTURE_CONFIG'];
@@ -326,24 +312,24 @@ function securityPreCheck(fileChanges, issueTitle = '', issueBody = '') {
       });
     }
   }
-  
+
   // If violations found, block execution
   if (violations.length > 0) {
     console.error('[Code Agent] ⛔ Security violations detected:');
     violations.forEach(v => {
       console.error(`  - ${v.path}: ${v.reason}`);
     });
-    
+
     throw new AutoFixError(
       'SECURITY_VIOLATION',
       `Code agent blocked: ${violations.length} security violation(s) detected`,
-      { 
+      {
         violations,
         message: 'This change affects security-sensitive files or configurations. Manual review required.',
       }
     );
   }
-  
+
   console.log('[Code Agent] ✓ Security pre-check passed');
 }
 
