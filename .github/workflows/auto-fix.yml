@@ -2,7 +2,7 @@ name: Auto-Fix GitHub Issues
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]  # Only trigger on label events, not on issue creation
   workflow_dispatch:
     inputs:
       issue_number:
@@ -29,33 +29,60 @@ jobs:
       - name: Check if auto-fix should proceed
         id: check
         run: |
-          # Check if issue has auto-fix label OR auto-fix-approved label
+          # Get all issue labels
           LABELS='${{ toJSON(github.event.issue.labels.*.name) }}'
           echo "Issue labels: $LABELS"
+          
+          # Check for required labels: must have BOTH (bug OR feature) AND (auto-fix OR auto-fix-approved)
+          HAS_BUG=$(echo "$LABELS" | jq -e '.[] | select(. == "bug")' > /dev/null 2>&1 && echo "true" || echo "false")
+          HAS_FEATURE=$(echo "$LABELS" | jq -e '.[] | select(. == "feature")' > /dev/null 2>&1 && echo "true" || echo "false")
+          HAS_AUTO_FIX=$(echo "$LABELS" | jq -e '.[] | select(. == "auto-fix" or . == "auto-fix-approved")' > /dev/null 2>&1 && echo "true" || echo "false")
+          
+          echo "Has bug label: $HAS_BUG"
+          echo "Has feature label: $HAS_FEATURE"
+          echo "Has auto-fix label: $HAS_AUTO_FIX"
           
           # For labeled event, only proceed if the new label is auto-fix or auto-fix-approved
           if [ "${{ github.event.action }}" = "labeled" ]; then
             LABEL_NAME="${{ github.event.label.name }}"
             echo "Label added: $LABEL_NAME"
             
-            if [ "$LABEL_NAME" = "auto-fix" ] || [ "$LABEL_NAME" = "auto-fix-approved" ]; then
-              echo "should_proceed=true" >> $GITHUB_OUTPUT
-              echo "✓ Auto-fix triggered by label: $LABEL_NAME"
-            else
+            # Only trigger when auto-fix label is added (not other labels)
+            if [ "$LABEL_NAME" != "auto-fix" ] && [ "$LABEL_NAME" != "auto-fix-approved" ]; then
               echo "should_proceed=false" >> $GITHUB_OUTPUT
-              echo "skip_reason=Wrong label added (expected auto-fix or auto-fix-approved)" >> $GITHUB_OUTPUT
-              echo "⊘ Skipping: Wrong label"
+              echo "skip_reason=Ignoring non-auto-fix label: $LABEL_NAME" >> $GITHUB_OUTPUT
+              echo "⊘ Skipping: Not an auto-fix label"
+              exit 0
             fi
+            
+            # Must also have bug or feature label
+            if [ "$HAS_BUG" = "false" ] && [ "$HAS_FEATURE" = "false" ]; then
+              echo "should_proceed=false" >> $GITHUB_OUTPUT
+              echo "skip_reason=Missing required label: issue must have 'bug' or 'feature' label along with 'auto-fix'" >> $GITHUB_OUTPUT
+              echo "⊘ Skipping: Missing bug/feature label"
+              exit 0
+            fi
+            
+            echo "should_proceed=true" >> $GITHUB_OUTPUT
+            echo "✓ Auto-fix triggered: has auto-fix label AND bug/feature label"
           else
-            # For opened event, check if issue already has auto-fix label
-            if echo "$LABELS" | jq -e '.[] | select(. == "auto-fix" or . == "auto-fix-approved")' > /dev/null; then
-              echo "should_proceed=true" >> $GITHUB_OUTPUT
-              echo "✓ Issue has auto-fix approval label"
-            else
+            # For workflow_dispatch, check both conditions
+            if [ "$HAS_AUTO_FIX" = "false" ]; then
               echo "should_proceed=false" >> $GITHUB_OUTPUT
               echo "skip_reason=No auto-fix label (add 'auto-fix' or 'auto-fix-approved' label to trigger)" >> $GITHUB_OUTPUT
               echo "⊘ Skipping: No auto-fix approval label"
+              exit 0
             fi
+            
+            if [ "$HAS_BUG" = "false" ] && [ "$HAS_FEATURE" = "false" ]; then
+              echo "should_proceed=false" >> $GITHUB_OUTPUT
+              echo "skip_reason=Missing required label: issue must have 'bug' or 'feature' label" >> $GITHUB_OUTPUT
+              echo "⊘ Skipping: Missing bug/feature label"
+              exit 0
+            fi
+            
+            echo "should_proceed=true" >> $GITHUB_OUTPUT
+            echo "✓ Issue has required labels"
           fi
 
   triage:
