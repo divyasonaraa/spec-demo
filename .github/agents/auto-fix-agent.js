@@ -23,8 +23,8 @@ import { AutoFixError } from './shared/error-handler.js';
 import * as gitOps from './shared/git-operations.js';
 import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-constraints.js';
 // NEW: Import modular architecture validation system
-import { SpecParser, DEFAULT_SPEC_CONFIG } from './shared/spec-parser.js';
-import { createValidator, ValidationResult } from './shared/architecture-validator.js';
+import { SpecificationParser, DEFAULT_SPEC_PATHS } from './shared/spec-parser.js';
+import { createValidator } from './shared/architecture-validator.js';
 import { createDefaultRegistry, Severity } from './shared/architecture-rules.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -498,7 +498,7 @@ const FRAMEWORK_DETECTORS = [
  * Project context analyzer - discovers project structure dynamically
  * Single Responsibility: Only analyzes project structure
  * 
- * IMPORTANT: Uses modular SpecParser for architectural context
+ * IMPORTANT: Uses modular SpecificationParser for architectural context
  */
 class ProjectAnalyzer {
   constructor(github, owner, repo, ref) {
@@ -508,12 +508,12 @@ class ProjectAnalyzer {
     this.ref = ref;
     this.cache = new Map();
     // NEW: Use modular spec parser
-    this.specParser = new SpecParser();
+    this.specParser = new SpecificationParser();
   }
 
   /**
    * Analyze project and return comprehensive context
-   * Now uses modular SpecParser for architectural understanding
+   * Now uses modular SpecificationParser for architectural understanding
    */
   async analyze() {
     console.log('[ProjectAnalyzer] Analyzing project structure...');
@@ -550,7 +550,7 @@ class ProjectAnalyzer {
   }
 
   /**
-   * Fetch and parse specification documents using modular SpecParser
+   * Fetch and parse specification documents using modular SpecificationParser
    * This prevents AI from making changes that violate architectural patterns
    */
   async fetchSpecificationContext() {

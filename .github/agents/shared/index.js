@@ -2,7 +2,7 @@
  * Shared Modules Index
  * 
  * This file exports all shared modules for easy importing.
- * Import like: import { SpecParser, createValidator } from './shared/index.js';
+ * Import like: import { SpecificationParser, createValidator } from './shared/index.js';
  * 
  * @module shared
  */
@@ -17,7 +17,7 @@ export * from './architecture-rules.js';
 export * from './architecture-validator.js';
 
 // Re-export commonly used items with simpler names for convenience
-export { SpecParser } from './spec-parser.js';
+export { SpecificationParser, createSpecParser } from './spec-parser.js';
 export {
     ArchitectureRulesRegistry,
     RuleTemplates,
