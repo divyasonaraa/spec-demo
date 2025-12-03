@@ -13,7 +13,7 @@
  * Output: Commit[] with diffs, validation results, commit SHAs
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { dirname, join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -22,6 +22,10 @@ import { getAIClient } from './shared/ai-client.js';
 import { AutoFixError } from './shared/error-handler.js';
 import * as gitOps from './shared/git-operations.js';
 import { checkSecurityFilePath, checkRiskyChangeTypes } from './shared/security-constraints.js';
+// NEW: Import modular architecture validation system
+import { SpecParser, DEFAULT_SPEC_CONFIG } from './shared/spec-parser.js';
+import { createValidator, ValidationResult } from './shared/architecture-validator.js';
+import { createDefaultRegistry, Severity } from './shared/architecture-rules.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -97,10 +101,10 @@ const CONFIG = Object.freeze({
   tokensPerChar: AI_PROVIDER.tokensPerChar,
   reservedForPrompt: AI_PROVIDER.reservedForPrompt,
   reservedForOutput: AI_PROVIDER.reservedForOutput,
-  
+
   // Calculated file budget (tokens available for file contents)
   fileTokenBudget: AI_PROVIDER.maxInputTokens - AI_PROVIDER.reservedForPrompt - AI_PROVIDER.reservedForOutput,
-  
+
   // Legacy limits (now secondary to token budget)
   maxFilesToFetch: parseInt(process.env.MAX_FILES || '8', 10),
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '50000', 10), // 50KB per file
@@ -188,14 +192,14 @@ class ContentCompressor {
    */
   static compress(content, filePath, maxTokens, tokenManager) {
     const estimated = tokenManager.estimate(content);
-    
+
     // If it fits, return as-is
     if (estimated <= maxTokens) {
       return { content, strategy: 'full', tokens: estimated };
     }
 
     const ext = extname(filePath).slice(1).toLowerCase();
-    
+
     // Choose compression strategy based on file type
     if (['vue', 'svelte'].includes(ext)) {
       return this.compressVueComponent(content, maxTokens, tokenManager);
@@ -213,19 +217,19 @@ class ContentCompressor {
    */
   static compressVueComponent(content, maxTokens, tokenManager) {
     const sections = [];
-    
+
     // Extract <script setup> or <script> - most important
     const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
     if (scriptMatch) {
       sections.push({ type: 'script', content: scriptMatch[0], priority: 1 });
     }
-    
+
     // Extract <template> - important for structure
     const templateMatch = content.match(/<template[^>]*>([\s\S]*?)<\/template>/i);
     if (templateMatch) {
       sections.push({ type: 'template', content: templateMatch[0], priority: 2 });
     }
-    
+
     // Extract <style> - lower priority
     const styleMatch = content.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
     if (styleMatch) {
@@ -234,10 +238,10 @@ class ContentCompressor {
 
     // Sort by priority and include what fits
     sections.sort((a, b) => a.priority - b.priority);
-    
+
     let result = '';
     let tokens = 0;
-    
+
     for (const section of sections) {
       const sectionTokens = tokenManager.estimate(section.content);
       if (tokens + sectionTokens <= maxTokens) {
@@ -262,44 +266,44 @@ class ContentCompressor {
     const lines = content.split('\n');
     const importantLines = [];
     const bodyLines = [];
-    
+
     let inImports = true;
     let braceDepth = 0;
-    
+
     for (const line of lines) {
       const trimmed = line.trim();
-      
+
       // Always keep imports and exports
       if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {
         importantLines.push(line);
         inImports = true;
         continue;
       }
-      
+
       // Keep type/interface definitions
-      if (trimmed.startsWith('interface ') || trimmed.startsWith('type ') || 
-          trimmed.startsWith('export interface') || trimmed.startsWith('export type')) {
+      if (trimmed.startsWith('interface ') || trimmed.startsWith('type ') ||
+        trimmed.startsWith('export interface') || trimmed.startsWith('export type')) {
         importantLines.push(line);
         continue;
       }
-      
+
       // Keep function/class signatures
       if (trimmed.match(/^(export\s+)?(async\s+)?function\s+\w+|^(export\s+)?class\s+\w+|^(export\s+)?const\s+\w+\s*=|^\w+\s*\([^)]*\)\s*[:{]/)) {
         importantLines.push(line);
         continue;
       }
-      
+
       // Track brace depth for context
       braceDepth += (line.match(/{/g) || []).length;
       braceDepth -= (line.match(/}/g) || []).length;
-      
+
       bodyLines.push(line);
     }
-    
+
     // Build result: imports first, then as much body as fits
     let result = importantLines.join('\n');
     let tokens = tokenManager.estimate(result);
-    
+
     // Add body lines until we hit the limit
     const remainingBudget = maxTokens - tokens;
     if (remainingBudget > 100 && bodyLines.length > 0) {
@@ -308,7 +312,7 @@ class ContentCompressor {
       result += '\n\n// === BODY (truncated) ===\n' + truncatedBody;
       tokens = tokenManager.estimate(result);
     }
-    
+
     return { content: result, strategy: 'ts-signatures', tokens };
   }
 
@@ -326,10 +330,10 @@ class ContentCompressor {
   static compressGeneric(content, maxTokens, tokenManager) {
     const truncated = this.truncateToTokens(content, maxTokens, tokenManager);
     const tokens = tokenManager.estimate(truncated);
-    return { 
-      content: truncated + '\n\n/* ... TRUNCATED ... */', 
-      strategy: 'truncated', 
-      tokens 
+    return {
+      content: truncated + '\n\n/* ... TRUNCATED ... */',
+      strategy: 'truncated',
+      tokens
     };
   }
 
@@ -340,12 +344,12 @@ class ContentCompressor {
     if (tokenManager.estimate(content) <= maxTokens) {
       return content;
     }
-    
+
     // Binary search for optimal length
     const lines = content.split('\n');
     let low = 0;
     let high = lines.length;
-    
+
     while (low < high) {
       const mid = Math.floor((low + high + 1) / 2);
       const slice = lines.slice(0, mid).join('\n');
@@ -355,7 +359,7 @@ class ContentCompressor {
         high = mid - 1;
       }
     }
-    
+
     return lines.slice(0, low).join('\n');
   }
 
@@ -364,20 +368,20 @@ class ContentCompressor {
    */
   static extractSignatures(content) {
     const signatures = [];
-    
+
     // Match function declarations
     const funcRegex = /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(<[^>]+>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+))?/g;
     let match;
     while ((match = funcRegex.exec(content)) !== null) {
       signatures.push(`function ${match[1]}(${match[3]})${match[4] ? ': ' + match[4].trim() : ''}`);
     }
-    
+
     // Match arrow functions
     const arrowRegex = /(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*([^=]+))?\s*=>/g;
     while ((match = arrowRegex.exec(content)) !== null) {
       signatures.push(`const ${match[1]} = (${match[2]})${match[3] ? ' => ' + match[3].trim() : ''}`);
     }
-    
+
     // Match class methods
     const methodRegex = /(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*([^{]+))?(?:\s*{)/g;
     while ((match = methodRegex.exec(content)) !== null) {
@@ -385,7 +389,7 @@ class ContentCompressor {
         signatures.push(`${match[1]}(${match[2]})${match[3] ? ': ' + match[3].trim() : ''}`);
       }
     }
-    
+
     return signatures;
   }
 }
@@ -493,6 +497,8 @@ const FRAMEWORK_DETECTORS = [
 /**
  * Project context analyzer - discovers project structure dynamically
  * Single Responsibility: Only analyzes project structure
+ * 
+ * IMPORTANT: Uses modular SpecParser for architectural context
  */
 class ProjectAnalyzer {
   constructor(github, owner, repo, ref) {
@@ -501,17 +507,21 @@ class ProjectAnalyzer {
     this.repo = repo;
     this.ref = ref;
     this.cache = new Map();
+    // NEW: Use modular spec parser
+    this.specParser = new SpecParser();
   }
 
   /**
    * Analyze project and return comprehensive context
+   * Now uses modular SpecParser for architectural understanding
    */
   async analyze() {
     console.log('[ProjectAnalyzer] Analyzing project structure...');
 
-    const [packageJson, structure] = await Promise.all([
+    const [packageJson, structure, specContext] = await Promise.all([
       this.fetchPackageJson(),
-      this.fetchProjectStructure()
+      this.fetchProjectStructure(),
+      this.fetchSpecificationContext()
     ]);
 
     const framework = this.detectFramework(packageJson);
@@ -519,6 +529,9 @@ class ProjectAnalyzer {
 
     console.log(`[ProjectAnalyzer] Detected: ${framework.name} (${language})`);
     console.log(`[ProjectAnalyzer] Found ${structure.length} files/directories`);
+    if (specContext.hasSpecs) {
+      console.log(`[ProjectAnalyzer] Loaded specification context: ${specContext.summary}`);
+    }
 
     return {
       framework: framework.name,
@@ -531,7 +544,132 @@ class ProjectAnalyzer {
       conventions: framework.conventions,
       filePatterns: framework.filePatterns,
       promptAdditions: framework.promptAdditions,
+      // NEW: Specification context from modular parser
+      specContext,
     };
+  }
+
+  /**
+   * Fetch and parse specification documents using modular SpecParser
+   * This prevents AI from making changes that violate architectural patterns
+   */
+  async fetchSpecificationContext() {
+    // Collect all spec file contents
+    const specContents = [];
+
+    // Dynamic spec file discovery
+    const specPaths = await this.discoverSpecFiles();
+
+    for (const specPath of specPaths) {
+      try {
+        const content = await this.fetchFileContent(specPath);
+        if (content) {
+          specContents.push({ path: specPath, content });
+          console.log(`[ProjectAnalyzer] Loaded spec: ${specPath}`);
+        }
+      } catch {
+        // Spec file doesn't exist, continue
+      }
+    }
+
+    if (specContents.length === 0) {
+      return {
+        hasSpecs: false,
+        summary: 'No specification documents found',
+        rules: {}
+      };
+    }
+
+    // Use modular SpecParser
+    const specContext = this.specParser.parse(specContents);
+    return specContext;
+  }
+
+  /**
+   * Dynamically discover specification files in the repository
+   * Searches common locations and patterns
+   */
+  async discoverSpecFiles() {
+    const paths = new Set();
+
+    // Check root-level architecture docs
+    const rootDocs = ['ARCHITECTURE.md', 'SIMPLIFIED_ARCHITECTURE.md', 'docs/ARCHITECTURE.md', 'docs/architecture.md'];
+    for (const doc of rootDocs) {
+      paths.add(doc);
+    }
+
+    // Dynamically find spec directories
+    try {
+      const specsContent = await this.fetchDirectoryContent('specs');
+      if (specsContent && Array.isArray(specsContent)) {
+        for (const item of specsContent) {
+          if (item.type === 'dir') {
+            // Add common spec files from each spec directory
+            const specFiles = ['plan.md', 'research.md', 'data-model.md', 'spec.md'];
+            for (const file of specFiles) {
+              paths.add(`specs/${item.name}/${file}`);
+            }
+          }
+        }
+      }
+    } catch {
+      // specs directory doesn't exist
+    }
+
+    // Check for .specify directory (speckit pattern)
+    try {
+      const specifyContent = await this.fetchDirectoryContent('.specify');
+      if (specifyContent && Array.isArray(specifyContent)) {
+        for (const item of specifyContent) {
+          if (item.type === 'file' && item.name.endsWith('.md')) {
+            paths.add(`.specify/${item.name}`);
+          }
+        }
+      }
+    } catch {
+      // .specify directory doesn't exist
+    }
+
+    return Array.from(paths);
+  }
+
+  /**
+   * Fetch directory content from GitHub
+   */
+  async fetchDirectoryContent(path) {
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path,
+        ref: this.ref
+      });
+      return Array.isArray(data) ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async fetchFileContent(filePath) {
+    const cacheKey = `content:${filePath}`;
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
+
+    try {
+      const { data } = await this.github.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: filePath,
+        ref: this.ref
+      });
+
+      if (data.type !== 'file') return null;
+
+      const content = Buffer.from(data.content, 'base64').toString('utf8');
+      this.cache.set(cacheKey, content);
+      return content;
+    } catch {
+      return null;
+    }
   }
 
   async fetchPackageJson() {
@@ -1109,24 +1247,24 @@ JSON response:`;
         candidatesWithSize.push({ path, size: fileInfo.size });
       }
     }
-    
+
     // Sort: smaller files first (more files = better context coverage)
     candidatesWithSize.sort((a, b) => a.size - b.size);
 
     for (const { path, size } of candidatesWithSize) {
       if (validFiles.length >= CONFIG.maxFilesToFetch) break;
       if (totalSize >= CONFIG.maxTotalContext) break;
-      
+
       // Estimate tokens for this file
       const estimatedTokens = Math.ceil(size * CONFIG.tokensPerChar);
-      
+
       // Check if we can afford this file (or a compressed version)
       const remainingBudget = tokenManager.remaining();
       if (remainingBudget < 200) {
         console.log(`[FileDiscovery] Token budget exhausted (${tokenManager.summary()})`);
         break;
       }
-      
+
       if (size <= CONFIG.maxFileSize) {
         validFiles.push(path);
         totalSize += size;
@@ -1142,6 +1280,7 @@ JSON response:`;
 /**
  * Prompt builder - constructs AI prompts dynamically based on context
  * TOKEN-OPTIMIZED: Uses concise, high-signal prompts
+ * NOW INCLUDES: Specification context for architectural compliance
  */
 class PromptBuilder {
   constructor(projectContext) {
@@ -1160,22 +1299,27 @@ class PromptBuilder {
   /**
    * Ultra-compact prompt for GitHub Models (8k limit)
    * ~400 tokens overhead, maximizes file content space
+   * NOW INCLUDES: Critical architectural rules
    */
   buildCompactPrompt(issue, triage, fileContents) {
     const fw = this.context.framework;
     const lang = this.context.language;
-    
-    // Framework-specific one-liner
-    const fwHint = fw === 'Vue.js' 
-      ? 'Vue3 Composition API + <script setup> + TypeScript. NO Options API.'
-      : fw === 'React' 
-      ? 'React hooks + TypeScript. Functional components only.'
-      : `${fw} + ${lang}`;
 
-    // Process files with budget
-    const fileTokenBudget = CONFIG.fileTokenBudget - 400; // Reserve 400 for prompt
+    // Framework-specific one-liner
+    const fwHint = fw === 'Vue.js'
+      ? 'Vue3 Composition API + <script setup> + TypeScript. NO Options API.'
+      : fw === 'React'
+        ? 'React hooks + TypeScript. Functional components only.'
+        : `${fw} + ${lang}`;
+
+    // Get architectural constraints (compact)
+    const archRules = this.getCompactArchitecturalRules();
+
+    // Process files with budget (reduce if we have arch rules)
+    const archTokens = this.tokenManager.estimate(archRules);
+    const fileTokenBudget = CONFIG.fileTokenBudget - 400 - archTokens;
     const filesSection = this.buildCompactFiles(fileContents, fileTokenBudget);
-    
+
     // Compact issue description (max 300 chars)
     const issueDesc = (issue.body || '').slice(0, 300).replace(/\n+/g, ' ');
 
@@ -1183,13 +1327,56 @@ class PromptBuilder {
 ${issueDesc}
 
 ${fwHint}
+${archRules}
 
 ${filesSection}
 
 Return JSON:
 {"file_changes":[{"path":"...","content":"FULL file","change_summary":"..."}],"commit_message":"fix: ...\\n\\nFixes #${issue.number}"}
 
-Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code only.`;
+Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code only. FOLLOW ARCHITECTURE RULES ABOVE.`;
+  }
+
+  /**
+   * Get compact architectural rules for token-limited prompts
+   */
+  getCompactArchitecturalRules() {
+    const spec = this.context.specContext;
+    if (!spec?.hasSpecs) return '';
+
+    const rules = [];
+
+    // Add critical data flow rules
+    if (spec.dataFlow?.rules?.length > 0) {
+      rules.push('ARCHITECTURE:');
+      // Take top 3 most important rules
+      spec.dataFlow.rules.slice(0, 3).forEach(r => {
+        rules.push(`- ${r}`);
+      });
+    }
+
+    // Add prohibited patterns (critical)
+    if (spec.prohibitedPatterns?.length > 0) {
+      rules.push('PROHIBITED:');
+      spec.prohibitedPatterns.slice(0, 3).forEach(p => {
+        rules.push(`- ${p.pattern}`);
+      });
+    }
+
+    // Add component-specific rules
+    if (spec.componentRules?.length > 0) {
+      const baseRules = spec.componentRules.filter(r => r.type === 'base-component');
+      if (baseRules.length > 0) {
+        rules.push('BASE COMPONENTS: Presentational only, NO data fetching, NO business logic');
+      }
+
+      const composableRules = spec.componentRules.filter(r => r.type === 'composable');
+      if (composableRules.length > 0) {
+        rules.push('COMPOSABLES: Handle data fetching, state management, business logic');
+      }
+    }
+
+    return rules.join('\n');
   }
 
   /**
@@ -1197,14 +1384,14 @@ Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code 
    */
   buildCompactFiles(fileContents, tokenBudget) {
     if (!fileContents?.length) return 'NO FILES';
-    
+
     const files = [];
     let budget = tokenBudget;
     const tm = new TokenManager();
-    
+
     for (const fc of fileContents) {
       if (budget < 150) break;
-      
+
       const tokens = tm.estimate(fc.content);
       if (tokens <= budget) {
         files.push(`### ${fc.path}\n\`\`\`\n${fc.content}\n\`\`\``);
@@ -1218,17 +1405,22 @@ Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code 
         }
       }
     }
-    
+
     return files.join('\n\n') || 'NO FILES FIT BUDGET';
   }
 
   /**
    * Standard prompt for larger context windows (Anthropic/OpenAI)
+   * INCLUDES: Full architectural context from specification documents
    */
   buildStandardPrompt(issue, triage, conventions, fileContents) {
-    const fileTokenBudget = CONFIG.fileTokenBudget - 800;
+    // Get architectural context
+    const archContext = this.buildArchitecturalContext();
+    const archTokens = this.tokenManager.estimate(archContext);
+
+    const fileTokenBudget = CONFIG.fileTokenBudget - 800 - archTokens;
     const filesSection = this.buildFileContents(fileContents, fileTokenBudget);
-    
+
     return `# Fix GitHub Issue #${issue.number}
 
 ## Task
@@ -1240,6 +1432,8 @@ ${(issue.body || 'No description').slice(0, 1000)}
 - **Stack**: ${this.context.framework} + ${this.context.language}
 - **Type**: ${triage.classification} | **Risk**: ${triage.risk}
 ${this.getFrameworkRules()}
+
+${archContext}
 
 ${filesSection}
 
@@ -1263,7 +1457,94 @@ ${filesSection}
 - [ ] Error handling added where needed
 - [ ] Types are correct (no \`any\`)
 - [ ] Matches existing code style
-- [ ] Complete solution (no TODOs)`;
+- [ ] Complete solution (no TODOs)
+- [ ] **FOLLOWS PROJECT ARCHITECTURE** (see rules above)`;
+  }
+
+  /**
+   * Build comprehensive architectural context from spec documents
+   * This is the KEY improvement - AI now understands project design patterns
+   */
+  buildArchitecturalContext() {
+    const spec = this.context.specContext;
+    if (!spec?.hasSpecs) {
+      return '## Project Architecture\nNo specification documents found. Follow standard patterns.';
+    }
+
+    const sections = ['## Project Architecture (from specs)\n'];
+    sections.push('**⚠️ CRITICAL: Follow these architectural rules. Violations will be rejected.**\n');
+
+    // Data Flow / Layer Architecture
+    if (spec.dataFlow?.rules?.length > 0) {
+      sections.push('### Data Flow & Layered Architecture');
+      sections.push('This project follows a strict layered architecture:\n');
+      spec.dataFlow.rules.forEach(rule => {
+        sections.push(`- ${rule}`);
+      });
+      sections.push('');
+    }
+
+    // Component Rules
+    if (spec.componentRules?.length > 0) {
+      sections.push('### Component Responsibilities');
+
+      const baseRules = spec.componentRules.filter(r => r.type === 'base-component');
+      if (baseRules.length > 0) {
+        sections.push('\n**Base Components** (`src/components/base/`):');
+        sections.push('- Are **dumb/presentational** components');
+        sections.push('- Receive ALL data via props');
+        sections.push('- Emit events for parent handling');
+        sections.push('- **DO NOT** fetch data or contain business logic');
+        sections.push('- **DO NOT** import services or composables that fetch data');
+      }
+
+      const composableRules = spec.componentRules.filter(r => r.type === 'composable');
+      if (composableRules.length > 0) {
+        sections.push('\n**Composables** (`src/composables/`):');
+        sections.push('- Handle data fetching (useDataSource, etc.)');
+        sections.push('- Manage complex state and business logic');
+        sections.push('- Are used by orchestrator components (FormRenderer)');
+      }
+
+      const orchestratorRules = spec.componentRules.filter(r => r.type === 'orchestrator');
+      if (orchestratorRules.length > 0) {
+        sections.push('\n**Orchestrator Components** (FormRenderer, etc.):');
+        sections.push('- Coordinate between composables and base components');
+        sections.push('- Pass data from composables down to base components');
+        sections.push('- Handle form submission, validation coordination');
+      }
+      sections.push('');
+    }
+
+    // Prohibited Patterns
+    if (spec.prohibitedPatterns?.length > 0) {
+      sections.push('### ❌ PROHIBITED (Never Do)');
+      spec.prohibitedPatterns.forEach(p => {
+        sections.push(`- ${p.pattern}`);
+      });
+      sections.push('');
+    }
+
+    // Required Patterns
+    if (spec.requiredPatterns?.length > 0) {
+      sections.push('### ✓ REQUIRED (Always Do)');
+      spec.requiredPatterns.forEach(p => {
+        sections.push(`- ${p.pattern}`);
+      });
+      sections.push('');
+    }
+
+    // Add specific guidance for this project type
+    sections.push('### Fix Guidelines');
+    sections.push('When fixing issues in this project:');
+    sections.push('1. **Identify the correct layer** - Is this a UI issue (base component) or data issue (composable/service)?');
+    sections.push('2. **Base components**: Only fix styling, props handling, event emission, accessibility');
+    sections.push('3. **Data issues**: Fix in composables (useDataSource, useFormValidation) or services');
+    sections.push('4. **Config issues**: Fix in config files (samples/, types/)');
+    sections.push('5. **Never add data fetching to base components**');
+    sections.push('');
+
+    return sections.join('\n');
   }
 
   /**
@@ -1271,7 +1552,7 @@ ${filesSection}
    */
   getFrameworkRules() {
     const { framework } = this.context;
-    
+
     const rules = {
       'Vue.js': `**Vue Rules**: Composition API + \`<script setup>\`. Use \`ref()\`, \`computed()\`, \`defineProps<T>()\`, \`defineEmits<T>()\`. NO Options API.`,
       'React': `**React Rules**: Functional components + hooks. Proper deps arrays. NO class components.`,
@@ -1279,7 +1560,7 @@ ${filesSection}
       'Svelte': `**Svelte Rules**: Svelte 4/5 syntax. Reactive \`$:\` statements.`,
       'Node.js': `**Node Rules**: async/await. Proper error handling. ES modules.`
     };
-    
+
     return rules[framework] || '';
   }
 
@@ -1291,19 +1572,19 @@ ${filesSection}
     const processedFiles = [];
     let remainingBudget = tokenBudget;
     const tempTokenManager = new TokenManager();
-    
+
     for (const fc of fileContents) {
       if (remainingBudget < 200) break;
-      
+
       const fullTokens = tempTokenManager.estimate(fc.content);
-      
+
       if (fullTokens <= remainingBudget) {
         processedFiles.push({ path: fc.path, content: fc.content, tokens: fullTokens });
         remainingBudget -= fullTokens;
       } else {
         const allocatedBudget = Math.min(remainingBudget, Math.floor(tokenBudget / fileContents.length));
         const compressed = ContentCompressor.compress(fc.content, fc.path, allocatedBudget, tempTokenManager);
-        
+
         if (compressed.tokens > 100) {
           processedFiles.push({ path: fc.path, content: compressed.content, tokens: compressed.tokens, partial: true });
           remainingBudget -= compressed.tokens;
@@ -1401,6 +1682,132 @@ class SecurityValidator {
     }
 
     return violations;
+  }
+}
+
+/**
+ * Architecture validator - uses modular validation system
+ * Validates code changes against architectural rules from specifications
+ * 
+ * This is a facade over the modular architecture-validator.js module
+ * for backward compatibility with existing code.
+ */
+class ArchitectureValidator {
+  /**
+   * Validate that proposed file changes follow project architecture
+   * Uses the modular validator from shared/architecture-validator.js
+   * 
+   * @param {Array} fileChanges Array of {path, content} objects
+   * @param {Object} specContext Parsed specification context
+   * @returns {Array} Array of violations
+   */
+  static async validate(fileChanges, specContext) {
+    if (!specContext?.hasSpecs) {
+      // No specs to validate against
+      return [];
+    }
+
+    try {
+      // Create and initialize the modular validator
+      const validator = createValidator();
+
+      // Detect framework from specContext
+      const framework = specContext.techStack?.find(t => /vue|react|angular|svelte/i.test(t)) || 'generic';
+
+      // Create rules registry from specs
+      const rulesRegistry = createDefaultRegistry(framework);
+      rulesRegistry.generateFromSpecs(specContext);
+
+      // Initialize validator with context
+      await validator.initialize({
+        specContext,
+        rulesRegistry,
+        projectContext: { framework }
+      });
+
+      // Prepare files for validation
+      const files = fileChanges.map(change => ({
+        path: change.path,
+        content: change.content || '',
+      }));
+
+      // Run validation
+      const result = await validator.validateFiles(files, { specContext });
+
+      // Convert ValidationResult to array of violations for backward compatibility
+      const violations = [];
+
+      for (const v of result.violations) {
+        violations.push({
+          path: v.path,
+          type: 'ARCHITECTURE_VIOLATION',
+          severity: 'ERROR',
+          reason: v.message || v.ruleName,
+          detail: v.message,
+          suggestion: v.suggestion || 'Review the project architecture documentation.',
+          ruleId: v.ruleId,
+        });
+      }
+
+      for (const w of result.warnings) {
+        violations.push({
+          path: w.path,
+          type: 'ARCHITECTURE_WARNING',
+          severity: 'WARNING',
+          reason: w.message || w.ruleName,
+          detail: w.message,
+          suggestion: w.suggestion,
+          ruleId: w.ruleId,
+        });
+      }
+
+      return violations;
+    } catch (error) {
+      console.warn('[ArchitectureValidator] Validation error:', error.message);
+      // Return empty on error to not block the process
+      return [];
+    }
+  }
+
+  /**
+   * Format violations for display (markdown)
+   * Uses the modular ValidationResult.toMarkdown() when available
+   */
+  static formatViolations(violations) {
+    if (violations.length === 0) return '';
+
+    const lines = ['## ⚠️ Architecture Violations Detected\n'];
+    lines.push('The proposed changes violate the project\'s architectural rules:\n');
+
+    const errors = violations.filter(v => v.severity === 'ERROR');
+    const warnings = violations.filter(v => v.severity === 'WARNING');
+
+    if (errors.length > 0) {
+      lines.push('### ❌ Errors (blocking)\n');
+      for (const v of errors) {
+        lines.push(`**${v.reason}**`);
+        lines.push(`- **File**: \`${v.path}\``);
+        if (v.detail && v.detail !== v.reason) {
+          lines.push(`- **Detail**: ${v.detail}`);
+        }
+        lines.push(`- **Suggestion**: ${v.suggestion}`);
+        lines.push('');
+      }
+    }
+
+    if (warnings.length > 0) {
+      lines.push('<details><summary>⚠️ Warnings (non-blocking)</summary>\n');
+      for (const v of warnings) {
+        lines.push(`- \`${v.path}\`: ${v.reason}`);
+      }
+      lines.push('\n</details>\n');
+    }
+
+    lines.push('---');
+    lines.push('**Action Required**: Please modify the fix to follow the project architecture.');
+    lines.push('See spec documents in `specs/` directory for architectural guidelines.');
+
+    return lines.join('\n');
   }
 }
 
@@ -1566,6 +1973,33 @@ class AutoFixAgent {
     console.log('[Auto-Fix] Generating fix with AI...');
     const { fileChanges, commitMessage } = await this.generateFix(prompt);
     console.log(`[Auto-Fix] Generated ${fileChanges.length} file changes`);
+
+    // NEW: Validate changes against project architecture using modular validator
+    console.log('[Auto-Fix] Validating against project architecture...');
+    const archViolations = await ArchitectureValidator.validate(fileChanges, projectContext.specContext);
+
+    if (archViolations.length > 0) {
+      const errorViolations = archViolations.filter(v => v.severity === 'ERROR');
+
+      if (errorViolations.length > 0) {
+        console.error('[Auto-Fix] ⛔ Architecture violations detected:');
+        errorViolations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
+
+        throw new AutoFixError('ARCHITECTURE_VIOLATION',
+          `Fix violates project architecture: ${errorViolations[0].reason}`,
+          {
+            violations: archViolations,
+            formattedMessage: ArchitectureValidator.formatViolations(archViolations)
+          }
+        );
+      } else {
+        // Warnings only - log but continue
+        console.warn('[Auto-Fix] ⚠️ Architecture warnings (non-blocking):');
+        archViolations.forEach(v => console.warn(`  - ${v.path}: ${v.reason}`));
+      }
+    } else {
+      console.log('[Auto-Fix] ✓ Architecture validation passed');
+    }
 
     // Apply changes
     for (const change of fileChanges) {
@@ -1816,6 +2250,30 @@ class AutoFixAgent {
         });
       }
       comment += `\n**Action Required**: Manual implementation needed.\n`;
+    } else if (error.code === 'ARCHITECTURE_VIOLATION') {
+      // NEW: Handle architecture violations with detailed explanation
+      comment += `### ⚠️ Architecture Violation\n\n`;
+      comment += `The generated fix violates this project's architectural rules.\n\n`;
+
+      if (error.details?.formattedMessage) {
+        comment += error.details.formattedMessage + '\n\n';
+      } else if (error.details?.violations) {
+        comment += `**Violations Found**:\n`;
+        error.details.violations.slice(0, 5).forEach(v => {
+          comment += `\n**${v.severity}**: ${v.reason}\n`;
+          comment += `- File: \`${v.path}\`\n`;
+          comment += `- Detail: ${v.detail}\n`;
+          comment += `- Suggestion: ${v.suggestion}\n`;
+        });
+      }
+
+      comment += `\n### Project Architecture Rules\n\n`;
+      comment += `This project follows a layered architecture:\n`;
+      comment += `- **Base Components** (\`src/components/base/\`): Presentational only, NO data fetching\n`;
+      comment += `- **Composables** (\`src/composables/\`): Handle data fetching, state management\n`;
+      comment += `- **Orchestrators** (FormRenderer): Coordinate between layers\n\n`;
+      comment += `**Action Required**: Fix must be implemented manually following the architecture.\n`;
+      comment += `See \`specs/001-form-config-generator/plan.md\` for full architecture details.\n`;
     } else if (error.code === 'NO_FILES_FOUND') {
       comment += `### No Files Identified\n\n`;
       comment += `Could not determine which files to modify.\n\n`;
@@ -1829,8 +2287,14 @@ class AutoFixAgent {
       owner, repo, issue_number: issueNumber, body: comment
     });
 
+    // Add appropriate labels
+    const labels = ['automation-failed'];
+    if (error.code === 'ARCHITECTURE_VIOLATION') {
+      labels.push('architecture-review');
+    }
+
     await this.github.rest.issues.addLabels({
-      owner, repo, issue_number: issueNumber, labels: ['automation-failed']
+      owner, repo, issue_number: issueNumber, labels
     });
   }
 }
