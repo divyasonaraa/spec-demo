@@ -896,34 +896,122 @@ async function postErrorComment(error) {
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
   
-  let errorComment = `## ❌ Auto-Fix Failed\n\n`;
-  errorComment += `**Error**: ${error.message}\n\n`;
+  let errorComment = `## 🤖 Auto-Fix Agent - Failed\n\n`;
+  errorComment += `The automated fix attempt encountered an error and has been rolled back.\n\n`;
+  errorComment += `### Error Details\n\n`;
+  errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n`;
+  errorComment += `**Message**: ${error.message}\n\n`;
   
   if (error.code === 'VALIDATION_FAILED') {
-    errorComment += `### Validation Failure\n\n`;
-    errorComment += `The automated fix was generated but failed validation checks:\n\n`;
-    if (error.details?.output) {
-      errorComment += `\`\`\`\n${error.details.output.slice(0, 1000)}\n\`\`\`\n\n`;
+    errorComment += `### 🔍 What Happened\n\n`;
+    errorComment += `The AI generated a fix, but it failed validation checks (lint, type-check, or build).\n\n`;
+    
+    if (error.details?.validation_results) {
+      errorComment += `**Failed Command**: \`${error.details.validation_results[error.details.validation_results.length - 1]?.command}\`\n\n`;
     }
-    errorComment += `**Next Steps**:\n`;
-    errorComment += `- Review the validation error above\n`;
-    errorComment += `- The changes have been rolled back\n`;
-    errorComment += `- Manual fix may be required\n`;
+    
+    if (error.details?.output) {
+      errorComment += `**Validation Output**:\n`;
+      errorComment += `\`\`\`\n${error.details.output.slice(0, 1500)}\n\`\`\`\n\n`;
+    }
+    
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Review the validation error** above to understand what went wrong\n`;
+    errorComment += `2. **Check the affected files** mentioned in the issue\n`;
+    errorComment += `3. **Run the failed command locally**:\n`;
+    if (error.details?.validation_results) {
+      const failedCmd = error.details.validation_results[error.details.validation_results.length - 1]?.command;
+      errorComment += `   \`\`\`bash\n   ${failedCmd}\n   \`\`\`\n`;
+    }
+    errorComment += `4. **Fix the issue manually** and create a PR\n\n`;
+    errorComment += `💡 **Tip**: The AI-generated code may be close to correct. Consider checking the workflow logs for what was attempted.\n`;
+    
   } else if (error.code === 'SECURITY_VIOLATION') {
-    errorComment += `### Security Block\n\n`;
-    errorComment += `This issue affects security-sensitive files or configurations.\n\n`;
-    errorComment += `**Violations**:\n`;
+    errorComment += `### 🔒 Security Block\n\n`;
+    errorComment += `This issue was **blocked for security reasons**. It affects sensitive files or configurations that require manual review.\n\n`;
+    errorComment += `**Blocked Items**:\n`;
     if (error.details?.violations) {
       error.details.violations.forEach(v => {
-        errorComment += `- \`${v.path}\`: ${v.reason}\n`;
+        errorComment += `- \`${v.path}\`\n`;
+        errorComment += `  - **Reason**: ${v.reason}\n`;
+        if (v.pattern) {
+          errorComment += `  - **Pattern**: \`${v.pattern}\`\n`;
+        }
       });
     }
-    errorComment += `\n**Action Required**: Manual review and implementation by maintainer.\n`;
+    errorComment += `\n### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Understand the security concern** - Review why these files are sensitive\n`;
+    errorComment += `2. **Manual implementation required** - A maintainer with appropriate access must implement this fix\n`;
+    errorComment += `3. **Follow security review process** - Ensure changes go through proper security review\n`;
+    errorComment += `4. **Test in isolated environment** - Test changes thoroughly before deploying\n\n`;
+    errorComment += `⚠️ **Important**: Never commit sensitive data like API keys, passwords, or private keys.\n`;
+    
+  } else if (error.code === 'INVALID_AI_OUTPUT') {
+    errorComment += `### 🤔 What Happened\n\n`;
+    errorComment += `The AI couldn't generate a valid fix for this issue. This usually means:\n`;
+    errorComment += `- The issue description needs more context or clarity\n`;
+    errorComment += `- The affected files couldn't be determined automatically\n`;
+    errorComment += `- The fix requires complex changes across multiple systems\n\n`;
+    
+    if (error.details?.response) {
+      errorComment += `**AI Response Preview**:\n`;
+      errorComment += `\`\`\`\n${error.details.response.slice(0, 500)}...\n\`\`\`\n\n`;
+    }
+    
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Add more details to the issue**:\n`;
+    errorComment += `   - Which files need to be changed?\n`;
+    errorComment += `   - What is the expected behavior?\n`;
+    errorComment += `   - Include code examples or error messages\n\n`;
+    errorComment += `2. **Specify affected files** in the issue body (e.g., "Affected file: \`src/components/Button.vue\`")\n\n`;
+    errorComment += `3. **Or implement manually** - This may require human understanding and context\n`;
+    
+  } else if (error.code === 'NOT_AUTO_FIX') {
+    errorComment += `### ℹ️ What Happened\n\n`;
+    errorComment += `The triage agent determined this issue is **not suitable for automatic fixing**.\n\n`;
+    errorComment += `**Reason**: ${error.message}\n\n`;
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `This issue requires manual implementation by a developer. The auto-fix system cannot handle:\n`;
+    errorComment += `- Complex architectural changes\n`;
+    errorComment += `- Changes requiring business logic decisions\n`;
+    errorComment += `- Updates to infrastructure or deployment configurations\n`;
+    errorComment += `- Changes requiring human judgment or stakeholder input\n`;
+    
+  } else if (error.code === 'NO_FILES_FOUND') {
+    errorComment += `### 📁 What Happened\n\n`;
+    errorComment += `The agent couldn't determine which files to modify based on the issue description.\n\n`;
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Update the issue** to specify affected files:\n`;
+    errorComment += `   - Example: "Affected file: \`src/components/BaseButton.vue\`"\n`;
+    errorComment += `   - Or: "Files: \`src/utils/helper.ts\`, \`src/types/index.ts\`"\n\n`;
+    errorComment += `2. **Add more context**:\n`;
+    errorComment += `   - Where does the error occur?\n`;
+    errorComment += `   - Which component/module is affected?\n`;
+    errorComment += `   - Include stack traces or error messages\n\n`;
+    errorComment += `3. **Re-trigger** the auto-fix by adding the \`auto-fix\` label again\n`;
+    
+  } else if (error.code === 'TIMEOUT') {
+    errorComment += `### ⏱️ What Happened\n\n`;
+    errorComment += `The auto-fix agent exceeded the 90-second timeout limit.\n\n`;
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Simplify the issue** - Break it into smaller, focused issues\n`;
+    errorComment += `2. **Reduce file count** - Specify fewer files to modify\n`;
+    errorComment += `3. **Manual implementation** - Complex changes may require manual work\n`;
+    
   } else {
-    errorComment += `**Error Code**: \`${error.code || 'UNKNOWN'}\`\n\n`;
-    errorComment += `The automation system encountered an error and has rolled back any changes.\n\n`;
-    errorComment += `A maintainer will need to investigate this issue manually.\n`;
+    errorComment += `### 🛠️ How to Fix\n\n`;
+    errorComment += `1. **Check the GitHub Actions logs** for detailed error information\n`;
+    errorComment += `2. **Review the issue description** - Ensure it's clear and specific\n`;
+    errorComment += `3. **Try manual implementation** - Some fixes may be too complex for automation\n`;
+    errorComment += `4. **Report to maintainers** if this seems like a bug in the automation system\n`;
   }
+  
+  errorComment += `\n---\n\n`;
+  errorComment += `### 📚 Additional Resources\n\n`;
+  errorComment += `- **Workflow Run**: [View detailed logs](../../actions)\n`;
+  errorComment += `- **Auto-Fix Documentation**: Check the repository README for auto-fix requirements\n`;
+  errorComment += `- **Manual Fix Guide**: Follow the standard PR process for manual fixes\n\n`;
+  errorComment += `> 💬 **Need Help?** Comment on this issue with questions or tag a maintainer.\n`;
   
   await github.rest.issues.createComment({
     owner,
@@ -932,7 +1020,7 @@ async function postErrorComment(error) {
     body: errorComment,
   });
   
-  // Add automation-failed label
+  // Add automation-failed label with detailed reason
   await github.rest.issues.addLabels({
     owner,
     repo,
@@ -940,7 +1028,7 @@ async function postErrorComment(error) {
     labels: ['automation-failed'],
   });
   
-  console.log('[Auto-Fix] Posted error comment and added automation-failed label');
+  console.log(`[Auto-Fix] Posted detailed error comment (${error.code}) and added automation-failed label`);
 }
 
 // Run main function
