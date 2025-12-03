@@ -102,14 +102,14 @@ async function runAutoFix() {
   const triageResult = JSON.parse(readFileSync(triageResultAbs, 'utf8'));
 
   if (!triageResult.success) {
-    throw new AutoFixError('INVALID_INPUT', 'Triage result indicates failure');
+    throw new AutoFixError('Triage result indicates failure', 'INVALID_INPUT');
   }
 
   const triage = triageResult.data;
 
   // Validate auto-fix decision
   if (triage.autoFixDecision !== 'AUTO_FIX') {
-    throw new AutoFixError('NOT_AUTO_FIX', `Auto-fix not approved: ${triage.autoFixDecision}`);
+    throw new AutoFixError(`Auto-fix not approved: ${triage.autoFixDecision}`, 'NOT_AUTO_FIX');
   }
 
   // Get GitHub client
@@ -134,7 +134,7 @@ async function runAutoFix() {
     process.chdir(repoRoot);
     console.log('[Auto-Fix] Changed working directory to repo root');
   } catch (e) {
-    throw new AutoFixError('CHDIR_FAILED', `Failed to change directory: ${e.message}`);
+    throw new AutoFixError(`Failed to change directory: ${e.message}`, 'CHDIR_FAILED');
   }
 
   // Generate branch name
@@ -255,16 +255,16 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
     }
     fixResult = JSON.parse(jsonText);
   } catch (error) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'Failed to parse AI response JSON', { response });
+    throw new AutoFixError('Failed to parse AI response JSON', 'INVALID_AI_OUTPUT', { response });
   }
 
   // Validate response structure
   if (!Array.isArray(fixResult.file_changes) || fixResult.file_changes.length === 0) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'AI response missing file_changes array');
+    throw new AutoFixError('AI response missing file_changes array', 'INVALID_AI_OUTPUT');
   }
 
   if (!fixResult.commit_message) {
-    throw new AutoFixError('INVALID_AI_OUTPUT', 'AI response missing commit_message');
+    throw new AutoFixError('AI response missing commit_message', 'INVALID_AI_OUTPUT');
   }
 
   console.log(`[Auto-Fix] AI generated fix for ${fixResult.file_changes.length} files`);
@@ -605,7 +605,7 @@ async function applyFileChange(fileChange) {
     writeFileSync(fileChange.path, fileChange.content, 'utf8');
     console.log(`[Auto-Fix] ✓ Updated ${fileChange.path}`);
   } catch (error) {
-    throw new AutoFixError('FILE_WRITE_FAILED', `Failed to write ${fileChange.path}: ${error.message}`);
+    throw new AutoFixError(`Failed to write ${fileChange.path}: ${error.message}`, 'FILE_WRITE_FAILED');
   }
 }
 
@@ -670,8 +670,8 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
     violations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
 
     throw new AutoFixError(
-      'SECURITY_VIOLATION',
       `Auto-fix blocked: ${violations.length} security violation(s) detected`,
+      'SECURITY_VIOLATION',
       { violations }
     );
   }
@@ -717,7 +717,7 @@ async function createBranch(branchName) {
       gitOps.createBranch(process.cwd(), branchName, DEFAULT_BRANCH);
     }
   } catch (error) {
-    throw new AutoFixError('GIT_BRANCH_FAILED', `Failed to create/checkout branch: ${error.message}`);
+    throw new AutoFixError(`Failed to create/checkout branch: ${error.message}`, 'GIT_BRANCH_FAILED');
   }
 }
 
@@ -857,7 +857,7 @@ async function commitChanges(filePaths, message) {
     const sha = gitOps.createCommit(process.cwd(), message);
     return sha;
   } catch (error) {
-    throw new AutoFixError('GIT_COMMIT_FAILED', `Failed to commit: ${error.message}`);
+    throw new AutoFixError(`Failed to commit: ${error.message}`, 'GIT_COMMIT_FAILED');
   }
 }
 
@@ -868,7 +868,7 @@ async function pushBranch(branchName) {
   try {
     gitOps.pushBranch(process.cwd(), branchName);
   } catch (error) {
-    throw new AutoFixError('GIT_PUSH_FAILED', `Failed to push branch: ${error.message}`, {
+    throw new AutoFixError(`Failed to push branch: ${error.message}`, 'GIT_PUSH_FAILED', {
       branch: branchName
     });
   }
