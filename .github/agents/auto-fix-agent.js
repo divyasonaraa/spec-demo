@@ -797,7 +797,8 @@ class FileDiscovery {
     const candidates = new Map(); // path -> { score, reasons }
 
     // Strategy 1: Extract explicitly mentioned file paths (highest priority)
-    const explicitFiles = this.extractExplicitPaths(issue.body || '');
+    // Include both title and body for path extraction
+    const explicitFiles = this.extractExplicitPaths(`${issue.title} ${issue.body || ''}`);
     explicitFiles.forEach(f => this.addCandidate(candidates, f, 100, 'explicit mention'));
     console.log(`[FileDiscovery] Strategy 1 (explicit): ${explicitFiles.length} files`);
 
@@ -891,7 +892,37 @@ class FileDiscovery {
       /`([^`]+\.\w{2,5})`/g,
     ];
 
+    // Well-known files without extensions that might be mentioned
+    const wellKnownFiles = {
+      'readme': 'README.md',
+      'license': 'LICENSE',
+      'changelog': 'CHANGELOG.md',
+      'contributing': 'CONTRIBUTING.md',
+      'code_of_conduct': 'CODE_OF_CONDUCT.md',
+      'security': 'SECURITY.md',
+      'authors': 'AUTHORS',
+      'makefile': 'Makefile',
+      'dockerfile': 'Dockerfile',
+      'gitignore': '.gitignore',
+      'npmignore': '.npmignore',
+      'editorconfig': '.editorconfig',
+      'eslintrc': '.eslintrc.js',
+      'prettierrc': '.prettierrc',
+    };
+
     const files = new Set();
+
+    // Check for well-known file mentions first
+    const textLower = text.toLowerCase();
+    for (const [keyword, filename] of Object.entries(wellKnownFiles)) {
+      // Match patterns like "in README", "the README", "README file", "fix README"
+      const keywordPattern = new RegExp(`(?:in|the|fix|update|edit|modify|change)\\s+${keyword}|${keyword}\\s+(?:file)?`, 'i');
+      if (keywordPattern.test(text) || textLower.includes(keyword)) {
+        files.add(filename);
+      }
+    }
+
+    // Then check explicit path patterns
     for (const pattern of patterns) {
       const matches = text.matchAll(pattern);
       for (const match of matches) {

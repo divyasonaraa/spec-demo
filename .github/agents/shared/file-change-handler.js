@@ -110,6 +110,20 @@ class FullReplaceStrategy extends ChangeStrategy {
             warnings: [],
         };
 
+        // Skip hallucination detection for documentation files
+        // These files don't have code identifiers and are often simple text fixes
+        const docExtensions = ['.md', '.txt', '.rst', '.adoc', '.markdown'];
+        const isDocFile = docExtensions.some(ext => filePath.toLowerCase().endsWith(ext));
+        if (isDocFile) {
+            // For doc files, only check for extreme size reduction (likely deleted content)
+            const originalLines = originalContent.split('\n').length;
+            const newLines = newContent.split('\n').length;
+            if (originalLines > 10 && newLines < originalLines * 0.3) {
+                result.warnings.push(`Large content reduction in doc file: ${originalLines} → ${newLines} lines`);
+            }
+            return result; // Don't block, just warn
+        }
+
         const originalLines = originalContent.split('\n').length;
         const newLines = newContent.split('\n').length;
         const sizeRatio = newLines / originalLines;
