@@ -52,6 +52,11 @@ jobs:
 - OpenAI GPT-4 considered but GitHub Models more cost-effective for this use case
 - LangChain/LlamaIndex abstractions rejected (violates Principle IV: Minimal Dependencies)
 
+**Token Limit Considerations** (Added 2025-12-03):
+- GitHub Models has **strict 8,000 token limit** (much lower than Anthropic's 100k+)
+- System must be **token-aware** and adapt prompts based on provider
+- Implemented dynamic provider detection with automatic limit configuration
+
 **Alternatives Considered**:
 - **Rule-based classification**: Insufficient for nuanced triage decisions; requires constant maintenance for new patterns
 - **Local LLM (Ollama)**: GitHub Actions runners have limited resources; inference too slow (> 30-second requirement)
@@ -60,7 +65,7 @@ jobs:
 **Agent Workflow**:
 1. **Triage Agent**: Classify issue type, extract affected files, assess risk
 2. **Planner Agent**: Generate implementation plan with file changes
-3. **Code Agent**: Apply changes using git operations
+3. **Code Agent**: Apply changes using git operations (token-optimized prompts)
 4. **PR Generator**: Format comprehensive PR description
 
 ### 3. Security Constraint Enforcement
@@ -351,6 +356,59 @@ Based on research findings:
 | **Validation** | Lint + type-check + build | Pre-PR validation, automatic rollback |
 | **Rate Limiting** | Exponential backoff + jitter | Prevents throttling, adapts to congestion |
 | **Bot Detection** | Username suffix + label check | Simple, reliable, prevents infinite loops |
+| **Token Management** | Dynamic provider detection + content compression | Adapts to provider limits (8k-50k+) |
+
+---
+
+## Token Optimization Architecture (Added 2025-12-03)
+
+### Problem Discovered
+GitHub Models API has a strict **8,000 token limit**, causing `Request body too large` errors when sending multiple files for context. The original implementation sent 10 files without considering token limits.
+
+### Solution Implemented
+
+#### 1. AI Provider Auto-Detection
+```javascript
+function detectAIProvider() {
+  // Returns provider-specific token limits:
+  // - GitHub Models: 8,000 input, 2,000 output
+  // - OpenAI: 30,000 input, 4,096 output  
+  // - Anthropic: 50,000 input, 8,000 output
+}
+```
+
+#### 2. Token Management Classes
+- **TokenManager**: Estimates tokens, tracks budget consumption
+- **ContentCompressor**: Intelligently compresses files to fit budget
+  - Vue/Svelte: Extracts `<script>`, `<template>`, `<style>` by priority
+  - TypeScript: Preserves imports, types, signatures; truncates body
+  - Generic: Binary search for optimal truncation point
+
+#### 3. Two-Tier Prompt System
+| Budget | Prompt Type | Overhead | Features |
+|--------|-------------|----------|----------|
+| < 10k tokens | Compact | ~400 tokens | Minimal structure, essential rules only |
+| ≥ 10k tokens | Standard | ~800 tokens | Full sections, detailed requirements |
+
+#### 4. Token Budget Allocation (GitHub Models)
+```
+Total Budget:        8,000 tokens
+├─ Reserved Output: -2,000 tokens  
+├─ Prompt Overhead:   -400 tokens (compact mode)
+└─ Available Files:  5,600 tokens (~22KB of code)
+```
+
+### Key Files Modified
+- `.github/agents/auto-fix-agent.js`: Complete rewrite with token-aware architecture
+
+### Token Savings Achieved
+| Component | Before | After | Savings |
+|-----------|--------|-------|---------|
+| System Context | ~80 | ~20 | 75% |
+| Project Context | ~150 | ~30 | 80% |
+| Requirements | ~120 | ~50 | 58% |
+| Framework Rules | ~200 | ~30 | 85% |
+| **Total Overhead** | ~830 | ~270 | **67%** |
 
 ## Open Questions Resolved
 
@@ -366,6 +424,7 @@ All NEEDS CLARIFICATION markers from Technical Context have been addressed:
 8. ✅ **Rate Limit Handling**: Exponential backoff with secondary limit awareness
 9. ✅ **Bot Detection**: Username suffix and custom label checking
 10. ✅ **PR Template**: Structured markdown with collapsible sections
+11. ✅ **Token Management** (NEW): Dynamic provider detection with content compression
 
 ## Dependencies Audit
 

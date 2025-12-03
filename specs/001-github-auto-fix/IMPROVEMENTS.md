@@ -291,18 +291,101 @@ If you need to revert to automatic behavior:
 
 ---
 
+### 5. ✅ Token-Aware Architecture (2025-12-03)
+
+**Problem**: GitHub Models API has a strict 8,000 token limit, causing "Request body too large" errors when sending multiple files for context.
+
+**Solution**: Implemented comprehensive token management system that adapts to different AI providers.
+
+**Implementation**:
+
+#### AI Provider Auto-Detection
+- **GitHub Models**: 8,000 input tokens, 2,000 output tokens (most restrictive)
+- **OpenAI GPT-4**: 30,000 input tokens, 4,096 output tokens
+- **Anthropic Claude**: 50,000 input tokens, 8,000 output tokens
+
+```javascript
+// Auto-detection based on available API keys
+function detectAIProvider() {
+  if (process.env.ANTHROPIC_API_KEY) return { maxInputTokens: 50000, ... };
+  if (process.env.OPENAI_API_KEY) return { maxInputTokens: 30000, ... };
+  return { maxInputTokens: 8000, ... }; // GitHub Models default
+}
+```
+
+#### TokenManager Class
+- Estimates tokens using character + word-based calculation
+- Tracks budget consumption across file processing
+- Prevents exceeding AI provider limits
+
+#### ContentCompressor Class
+- **Vue/Svelte files**: Extracts `<script>`, `<template>`, `<style>` by priority
+- **TypeScript/JavaScript**: Preserves imports, types, signatures; truncates body
+- **Generic files**: Binary search for optimal truncation point
+
+#### Two-Tier Prompt System
+| Provider | Prompt Style | Overhead | Features |
+|----------|-------------|----------|----------|
+| GitHub Models (< 10k) | Compact | ~400 tokens | Minimal structure, essential rules |
+| OpenAI/Anthropic (≥ 10k) | Standard | ~800 tokens | Full sections, detailed requirements |
+
+**Token Budget Allocation (GitHub Models)**:
+```
+Total Budget:        8,000 tokens
+├─ Reserved Output: -2,000 tokens  
+├─ Prompt Overhead:   -400 tokens (compact mode)
+└─ Available Files:  5,600 tokens (~22KB of code)
+```
+
+**Token Savings**:
+| Component | Before | After | Savings |
+|-----------|--------|-------|---------|
+| System Context | ~80 | ~20 | 75% |
+| Project Context | ~150 | ~30 | 80% |
+| Requirements | ~120 | ~50 | 58% |
+| Framework Rules | ~200 | ~30 | 85% |
+| **Total Overhead** | ~830 | ~270 | **67%** |
+
+**Key Files Modified**:
+- `.github/agents/auto-fix-agent.js`: Complete rewrite with token-aware classes
+
+---
+
+### 6. ✅ Dynamic File Discovery System
+
+**Problem**: Static file mappings couldn't adapt to different project structures.
+
+**Solution**: Implemented multi-strategy file discovery with scoring system.
+
+**Strategies**:
+1. **Explicit paths** (100 points): Parse file paths from issue body
+2. **Triage analysis** (90 points): Use affected files from triage
+3. **Semantic matching** (variable): Match keywords to file names/paths
+4. **Convention-based** (20 points): Use framework conventions (src/components, etc.)
+5. **AI-assisted** (70 points): LLM suggests relevant files
+6. **Import analysis** (30 points): Find files that import the affected code
+
+**Implementation Classes**:
+- `ProjectAnalyzer`: Discovers framework, language, conventions
+- `FileDiscovery`: Multi-strategy file finding with scoring
+- Token-aware file selection: Stops when budget exhausted
+
+---
+
 ## Future Enhancements
 
 Potential improvements for future iterations:
 
-1. **AI Model Selection**: Allow choosing between Claude, GPT-4, or local models
+1. ~~**AI Model Selection**~~: ✅ Now auto-detects provider and adapts
 2. **Custom Approval Workflows**: Support for PR-based approval instead of labels
 3. **Learning from Feedback**: Track which auto-fixes get approved/rejected to improve prompts
 4. **Multi-file Refactoring**: Support for larger-scope changes with architectural analysis
 5. **Integration Tests**: Auto-generate and run integration tests before PR creation (when testing is enabled)
-6. **Cost Tracking**: Monitor and report AI API usage costs per repository
+6. ~~**Cost Tracking**~~: ✅ Token usage now logged and managed
 7. **Custom Conventions**: Repository-specific coding standards configuration
 8. **Rollback Automation**: Auto-revert if PR fails CI/CD checks
+9. **Streaming Responses**: Support for streaming AI responses for better UX
+10. **Caching**: Cache project structure and file contents for faster subsequent runs
 
 ---
 

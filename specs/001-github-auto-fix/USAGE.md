@@ -255,6 +255,48 @@ User reported typo in installation section that could cause confusion.
 
 ## Configuration Options
 
+### AI Provider Configuration
+
+The system auto-detects your AI provider based on available API keys:
+
+| Provider | API Key Variable | Token Limits | Best For |
+|----------|-----------------|--------------|----------|
+| **GitHub Models** (default) | `GITHUB_TOKEN` | 8k input / 2k output | Small fixes, free tier |
+| **OpenAI GPT-4** | `OPENAI_API_KEY` | 30k input / 4k output | Medium complexity |
+| **Anthropic Claude** | `ANTHROPIC_API_KEY` | 50k input / 8k output | Complex fixes, best quality |
+
+**Priority Order**: Anthropic > OpenAI > GitHub Models
+
+**To use a specific provider**, set the appropriate secret in your repository:
+
+1. Go to **Settings** → **Secrets and variables** → **Actions**
+2. Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
+3. The workflow will automatically use the higher-capacity provider
+
+**Example workflow configuration**:
+```yaml
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  # OR
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Token Budget Behavior
+
+The system adapts its behavior based on available tokens:
+
+**GitHub Models (8k tokens)**:
+- Uses compact prompts (~400 token overhead)
+- Fetches fewer files (2-4 depending on size)
+- Compresses large files (extracts key sections)
+- Simpler output format
+
+**Anthropic/OpenAI (30k+ tokens)**:
+- Uses detailed prompts (~800 token overhead)  
+- Fetches more files (6-8 for better context)
+- Full file contents when possible
+- Comprehensive output with explanations
+
 ### Approval Labels
 
 You can customize which labels trigger auto-fix by editing the workflow:
@@ -307,6 +349,25 @@ const DRAFT_PR_ELIGIBLE = ['LOW', 'MEDIUM'];    // Default: LOW and MEDIUM
 2. Look for `automation-failed` label
 3. Read error comment on issue
 4. Implement manually or adjust constraints
+
+### Token/Context Limit Errors
+
+If you see errors like "Request body too large" or "Max tokens exceeded":
+
+**Cause**: Too many/large files for the AI provider's token limit
+
+**Solutions**:
+1. **Use a higher-capacity provider**: Add `ANTHROPIC_API_KEY` for 50k tokens
+2. **Simplify the issue**: Focus on one file at a time
+3. **Mention specific files**: "Fix in `src/components/Button.vue` only"
+4. **Check logs**: The system logs token usage - review in Actions tab
+
+**Token Budget Output Example**:
+```
+[AI Client] Using GitHub Models (github-models)
+[AI Client] Token budget: 8000 input, 2000 output
+[FileDiscovery] Token usage: 5200/5600 tokens (92.8%)
+```
 
 ### PR Quality Issues
 

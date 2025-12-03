@@ -88,12 +88,16 @@ GitHub Actions Workflow Triggered
 Navigate to your repository **Settings → Secrets and variables → Actions** and add:
 
 ```yaml
-# Required: AI API Key (choose one)
-ANTHROPIC_API_KEY: sk-ant-...              # Anthropic Claude
-# OR
-OPENAI_API_KEY: sk-...                     # OpenAI GPT-4
-# OR
-GITHUB_TOKEN: ghp_...                      # GitHub Models (auto-provided)
+# Required: AI API Key (choose one based on your needs)
+
+# Option 1: Anthropic Claude (RECOMMENDED - best quality, 50k token context)
+ANTHROPIC_API_KEY: sk-ant-...
+
+# Option 2: OpenAI GPT-4 (good quality, 30k token context)
+OPENAI_API_KEY: sk-...
+
+# Option 3: GitHub Models (free tier, 8k token context - basic fixes only)
+# GITHUB_TOKEN is auto-provided, no additional secret needed
 
 # Optional: Custom configuration
 AUTO_FIX_CONFIG: |
@@ -103,6 +107,19 @@ AUTO_FIX_CONFIG: |
     "blocked_patterns": ["**/.env*", "**/secrets/**"]
   }
 ```
+
+#### AI Provider Comparison
+
+| Provider | Token Limit | Quality | Cost | Best For |
+|----------|------------|---------|------|----------|
+| **Anthropic Claude** | 50k input | ⭐⭐⭐ Excellent | ~$0.017/issue | Complex fixes, large codebases |
+| **OpenAI GPT-4** | 30k input | ⭐⭐⭐ Excellent | ~$0.015/issue | General purpose |
+| **GitHub Models** | 8k input | ⭐⭐ Good | Free | Simple fixes, typos, docs |
+
+The system auto-detects your provider and adapts its behavior:
+- **Compact prompts** for GitHub Models (saves 67% token overhead)
+- **Detailed prompts** for Anthropic/OpenAI (better context)
+- **Smart file compression** when context exceeds limits
 
 ### Step 2: Create Workflow File
 
@@ -491,6 +508,25 @@ To modify agent behavior:
 - Affected files not in blocked patterns
 - Risk assessment not set to HIGH
 - Review triage comment for reasoning
+
+### Token/Context Limit Errors
+
+If you see "Request body too large" or similar errors:
+
+**Cause**: File context exceeds AI provider's token limit
+
+**Solutions**:
+1. **Upgrade provider**: Add `ANTHROPIC_API_KEY` for 50k token limit (vs 8k for GitHub Models)
+2. **Simplify issue scope**: Focus on fewer files per issue
+3. **Mention specific files**: Help the system focus on relevant files
+4. **Check logs**: Token usage is logged - look for `[FileDiscovery] Token usage:` in workflow logs
+
+**Example log output**:
+```
+[AI Client] Using GitHub Models (github-models)
+[AI Client] Token budget: 8000 input, 2000 output
+[FileDiscovery] Token usage: 5200/5600 tokens (92.8%)
+```
 
 ### Validation Failing
 

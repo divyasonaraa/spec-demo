@@ -29,6 +29,60 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // CONFIGURATION - Centralized & Environment-driven
 // ============================================================================
 
+// ============================================================================
+// AI PROVIDER DETECTION - Determines token limits automatically
+// ============================================================================
+
+/**
+ * Detect which AI provider is configured and return appropriate limits
+ */
+function detectAIProvider() {
+  const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasGitHub = !!process.env.GITHUB_TOKEN && !hasAnthropic && !hasOpenAI;
+
+  if (hasAnthropic) {
+    return {
+      provider: 'anthropic',
+      name: 'Anthropic Claude',
+      // Claude has 100k-200k context, but we use conservative limits for cost
+      maxInputTokens: 50000,
+      maxOutputTokens: 8000,
+      tokensPerChar: 0.25, // ~4 chars per token for code
+      reservedForPrompt: 2000, // Reserve for system prompt
+      reservedForOutput: 8000, // Reserve for response
+    };
+  }
+
+  if (hasOpenAI) {
+    return {
+      provider: 'openai',
+      name: 'OpenAI GPT-4',
+      // GPT-4 Turbo has 128k context
+      maxInputTokens: 30000,
+      maxOutputTokens: 4096,
+      tokensPerChar: 0.25,
+      reservedForPrompt: 1500,
+      reservedForOutput: 4096,
+    };
+  }
+
+  // Default: GitHub Models (most restrictive)
+  return {
+    provider: 'github-models',
+    name: 'GitHub Models',
+    maxInputTokens: 8000, // Hard limit from error
+    maxOutputTokens: 2000,
+    tokensPerChar: 0.30, // More conservative for safety
+    reservedForPrompt: 1200, // Compact prompt
+    reservedForOutput: 2000,
+  };
+}
+
+const AI_PROVIDER = detectAIProvider();
+console.log(`[AI Client] Using ${AI_PROVIDER.name} (${AI_PROVIDER.provider})`);
+console.log(`[AI Client] Token budget: ${AI_PROVIDER.maxInputTokens} input, ${AI_PROVIDER.maxOutputTokens} output`);
+
 const CONFIG = Object.freeze({
   // Environment
   issueNumber: process.env.ISSUE_NUMBER,
@@ -37,11 +91,20 @@ const CONFIG = Object.freeze({
   timeoutMs: parseInt(process.env.TIMEOUT_MS || '120000', 10),
   defaultBranch: process.env.DEFAULT_BRANCH || 'main',
 
-  // Limits - Configurable thresholds
-  maxFilesToFetch: parseInt(process.env.MAX_FILES || '10', 10),
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '100000', 10), // 100KB per file
-  maxTotalContext: parseInt(process.env.MAX_CONTEXT || '500000', 10), // 500KB total
-  maxTokens: parseInt(process.env.MAX_TOKENS || '8000', 10),
+  // Token-Aware Limits (dynamically calculated)
+  maxInputTokens: AI_PROVIDER.maxInputTokens,
+  maxOutputTokens: AI_PROVIDER.maxOutputTokens,
+  tokensPerChar: AI_PROVIDER.tokensPerChar,
+  reservedForPrompt: AI_PROVIDER.reservedForPrompt,
+  reservedForOutput: AI_PROVIDER.reservedForOutput,
+  
+  // Calculated file budget (tokens available for file contents)
+  fileTokenBudget: AI_PROVIDER.maxInputTokens - AI_PROVIDER.reservedForPrompt - AI_PROVIDER.reservedForOutput,
+  
+  // Legacy limits (now secondary to token budget)
+  maxFilesToFetch: parseInt(process.env.MAX_FILES || '8', 10),
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '50000', 10), // 50KB per file
+  maxTotalContext: parseInt(process.env.MAX_CONTEXT || '200000', 10), // 200KB total
 
   // AI Settings
   temperature: parseFloat(process.env.AI_TEMPERATURE || '0.1'),
@@ -60,8 +123,277 @@ const CONFIG = Object.freeze({
 // ============================================================================
 
 /**
+ * Token manager - estimates and manages token budget
+ * Critical for staying within AI provider limits
+ */
+class TokenManager {
+  constructor() {
+    this.tokensPerChar = CONFIG.tokensPerChar;
+    this.budget = CONFIG.fileTokenBudget;
+    this.used = 0;
+  }
+
+  /**
+   * Estimate tokens for a string
+   * Uses character-based estimation (conservative)
+   */
+  estimate(text) {
+    if (!text) return 0;
+    // More accurate estimation: count words and special chars
+    const words = text.split(/\s+/).length;
+    const chars = text.length;
+    // Tokens ≈ max(words * 1.3, chars * 0.25)
+    return Math.ceil(Math.max(words * 1.3, chars * this.tokensPerChar));
+  }
+
+  /**
+   * Check if we can afford more tokens
+   */
+  canAfford(tokens) {
+    return (this.used + tokens) <= this.budget;
+  }
+
+  /**
+   * Get remaining budget
+   */
+  remaining() {
+    return Math.max(0, this.budget - this.used);
+  }
+
+  /**
+   * Consume tokens from budget
+   */
+  consume(tokens) {
+    this.used += tokens;
+    return this.remaining();
+  }
+
+  /**
+   * Get usage summary
+   */
+  summary() {
+    const pct = ((this.used / this.budget) * 100).toFixed(1);
+    return `${this.used}/${this.budget} tokens (${pct}%)`;
+  }
+}
+
+/**
+ * Content compressor - intelligently reduces file content to fit token budget
+ * Uses multiple strategies to preserve the most important information
+ */
+class ContentCompressor {
+  /**
+   * Compress file content to fit within token limit
+   * Strategy: Extract most important parts of the code
+   */
+  static compress(content, filePath, maxTokens, tokenManager) {
+    const estimated = tokenManager.estimate(content);
+    
+    // If it fits, return as-is
+    if (estimated <= maxTokens) {
+      return { content, strategy: 'full', tokens: estimated };
+    }
+
+    const ext = extname(filePath).slice(1).toLowerCase();
+    
+    // Choose compression strategy based on file type
+    if (['vue', 'svelte'].includes(ext)) {
+      return this.compressVueComponent(content, maxTokens, tokenManager);
+    } else if (['ts', 'js', 'tsx', 'jsx'].includes(ext)) {
+      return this.compressTypeScript(content, maxTokens, tokenManager);
+    } else if (['css', 'scss', 'less'].includes(ext)) {
+      return this.compressStyles(content, maxTokens, tokenManager);
+    } else {
+      return this.compressGeneric(content, maxTokens, tokenManager);
+    }
+  }
+
+  /**
+   * Compress Vue/Svelte components - preserve structure
+   */
+  static compressVueComponent(content, maxTokens, tokenManager) {
+    const sections = [];
+    
+    // Extract <script setup> or <script> - most important
+    const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+    if (scriptMatch) {
+      sections.push({ type: 'script', content: scriptMatch[0], priority: 1 });
+    }
+    
+    // Extract <template> - important for structure
+    const templateMatch = content.match(/<template[^>]*>([\s\S]*?)<\/template>/i);
+    if (templateMatch) {
+      sections.push({ type: 'template', content: templateMatch[0], priority: 2 });
+    }
+    
+    // Extract <style> - lower priority
+    const styleMatch = content.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    if (styleMatch) {
+      sections.push({ type: 'style', content: styleMatch[0], priority: 3 });
+    }
+
+    // Sort by priority and include what fits
+    sections.sort((a, b) => a.priority - b.priority);
+    
+    let result = '';
+    let tokens = 0;
+    
+    for (const section of sections) {
+      const sectionTokens = tokenManager.estimate(section.content);
+      if (tokens + sectionTokens <= maxTokens) {
+        result += section.content + '\n\n';
+        tokens += sectionTokens;
+      } else if (section.type === 'script') {
+        // Script is critical - truncate if needed
+        const truncated = this.truncateToTokens(section.content, maxTokens - tokens, tokenManager);
+        result += truncated + '\n<!-- TRUNCATED -->\n';
+        tokens = maxTokens;
+        break;
+      }
+    }
+
+    return { content: result.trim(), strategy: 'vue-sections', tokens };
+  }
+
+  /**
+   * Compress TypeScript/JavaScript - preserve signatures and structure
+   */
+  static compressTypeScript(content, maxTokens, tokenManager) {
+    const lines = content.split('\n');
+    const importantLines = [];
+    const bodyLines = [];
+    
+    let inImports = true;
+    let braceDepth = 0;
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      // Always keep imports and exports
+      if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {
+        importantLines.push(line);
+        inImports = true;
+        continue;
+      }
+      
+      // Keep type/interface definitions
+      if (trimmed.startsWith('interface ') || trimmed.startsWith('type ') || 
+          trimmed.startsWith('export interface') || trimmed.startsWith('export type')) {
+        importantLines.push(line);
+        continue;
+      }
+      
+      // Keep function/class signatures
+      if (trimmed.match(/^(export\s+)?(async\s+)?function\s+\w+|^(export\s+)?class\s+\w+|^(export\s+)?const\s+\w+\s*=|^\w+\s*\([^)]*\)\s*[:{]/)) {
+        importantLines.push(line);
+        continue;
+      }
+      
+      // Track brace depth for context
+      braceDepth += (line.match(/{/g) || []).length;
+      braceDepth -= (line.match(/}/g) || []).length;
+      
+      bodyLines.push(line);
+    }
+    
+    // Build result: imports first, then as much body as fits
+    let result = importantLines.join('\n');
+    let tokens = tokenManager.estimate(result);
+    
+    // Add body lines until we hit the limit
+    const remainingBudget = maxTokens - tokens;
+    if (remainingBudget > 100 && bodyLines.length > 0) {
+      const bodyContent = bodyLines.join('\n');
+      const truncatedBody = this.truncateToTokens(bodyContent, remainingBudget, tokenManager);
+      result += '\n\n// === BODY (truncated) ===\n' + truncatedBody;
+      tokens = tokenManager.estimate(result);
+    }
+    
+    return { content: result, strategy: 'ts-signatures', tokens };
+  }
+
+  /**
+   * Compress CSS/SCSS - keep selectors, truncate values
+   */
+  static compressStyles(content, maxTokens, tokenManager) {
+    // For styles, just truncate from the end
+    return this.compressGeneric(content, maxTokens, tokenManager);
+  }
+
+  /**
+   * Generic compression - smart truncation
+   */
+  static compressGeneric(content, maxTokens, tokenManager) {
+    const truncated = this.truncateToTokens(content, maxTokens, tokenManager);
+    const tokens = tokenManager.estimate(truncated);
+    return { 
+      content: truncated + '\n\n/* ... TRUNCATED ... */', 
+      strategy: 'truncated', 
+      tokens 
+    };
+  }
+
+  /**
+   * Truncate content to fit within token limit
+   */
+  static truncateToTokens(content, maxTokens, tokenManager) {
+    if (tokenManager.estimate(content) <= maxTokens) {
+      return content;
+    }
+    
+    // Binary search for optimal length
+    const lines = content.split('\n');
+    let low = 0;
+    let high = lines.length;
+    
+    while (low < high) {
+      const mid = Math.floor((low + high + 1) / 2);
+      const slice = lines.slice(0, mid).join('\n');
+      if (tokenManager.estimate(slice) <= maxTokens) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    
+    return lines.slice(0, low).join('\n');
+  }
+
+  /**
+   * Extract function/method signatures from TypeScript
+   */
+  static extractSignatures(content) {
+    const signatures = [];
+    
+    // Match function declarations
+    const funcRegex = /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(<[^>]+>)?\s*\(([^)]*)\)\s*(?::\s*([^{]+))?/g;
+    let match;
+    while ((match = funcRegex.exec(content)) !== null) {
+      signatures.push(`function ${match[1]}(${match[3]})${match[4] ? ': ' + match[4].trim() : ''}`);
+    }
+    
+    // Match arrow functions
+    const arrowRegex = /(?:export\s+)?const\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*([^=]+))?\s*=>/g;
+    while ((match = arrowRegex.exec(content)) !== null) {
+      signatures.push(`const ${match[1]} = (${match[2]})${match[3] ? ' => ' + match[3].trim() : ''}`);
+    }
+    
+    // Match class methods
+    const methodRegex = /(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*([^{]+))?(?:\s*{)/g;
+    while ((match = methodRegex.exec(content)) !== null) {
+      if (!['if', 'for', 'while', 'switch', 'catch', 'function'].includes(match[1])) {
+        signatures.push(`${match[1]}(${match[2]})${match[3] ? ': ' + match[3].trim() : ''}`);
+      }
+    }
+    
+    return signatures;
+  }
+}
+
+/**
  * Framework detector registry - easily extensible
  * Add new frameworks by appending to this array
+ * NOTE: promptAdditions kept minimal - detailed rules in PromptBuilder.getFrameworkRules()
  */
 const FRAMEWORK_DETECTORS = [
   {
@@ -84,17 +416,8 @@ const FRAMEWORK_DETECTORS = [
       typeDir: 'src/types',
       storeDir: 'src/stores',
     },
-    promptAdditions: `
-**Vue.js Specific Requirements**:
-- Use Vue 3 Composition API with <script setup> syntax
-- Use TypeScript for type safety in .vue and .ts files
-- Follow Vue 3 best practices (reactive refs, computed, watch patterns)
-- Props should have TypeScript interfaces defined
-- Emits should be explicitly declared with defineEmits<>()
-- Use provide/inject for dependency injection when appropriate
-- DO NOT use Options API (no data(), methods, computed as object)
-- DO NOT create React components (no useState, useEffect, jsx/tsx syntax)
-- Handle reactivity properly (use .value for refs, avoid losing reactivity)`,
+    // Compact: detailed rules in PromptBuilder
+    promptAdditions: '',
   },
   {
     name: 'React',
@@ -114,12 +437,7 @@ const FRAMEWORK_DETECTORS = [
       hookDir: 'src/hooks',
       pageDir: 'src/pages',
     },
-    promptAdditions: `
-**React Specific Requirements**:
-- Use functional components with hooks (no class components)
-- Follow React best practices (proper hook dependencies, memoization)
-- Use TypeScript for prop types and state
-- DO NOT create Vue components (no <template>, no ref(), no reactive())`,
+    promptAdditions: '',
   },
   {
     name: 'Angular',
@@ -133,12 +451,7 @@ const FRAMEWORK_DETECTORS = [
     conventions: {
       componentDir: 'src/app',
     },
-    promptAdditions: `
-**Angular Specific Requirements**:
-- Follow Angular style guide
-- Use standalone components where appropriate
-- Proper dependency injection
-- Use Angular signals/RxJS for state management`,
+    promptAdditions: '',
   },
   {
     name: 'Svelte',
@@ -151,11 +464,7 @@ const FRAMEWORK_DETECTORS = [
       componentDir: 'src/lib',
       routeDir: 'src/routes',
     },
-    promptAdditions: `
-**Svelte Specific Requirements**:
-- Use Svelte 4/5 syntax
-- Reactive statements with $:
-- Proper event handling`,
+    promptAdditions: '',
   },
   {
     name: 'Node.js',
@@ -173,11 +482,7 @@ const FRAMEWORK_DETECTORS = [
     conventions: {
       sourceDir: 'src',
     },
-    promptAdditions: `
-**Node.js Specific Requirements**:
-- Follow Node.js best practices
-- Proper error handling with try-catch
-- Use async/await over callbacks`,
+    promptAdditions: '',
   }
 ];
 
@@ -789,198 +1094,235 @@ JSON response:`;
 
   /**
    * Validate file existence and apply limits
+   * Now token-aware: selects files that fit within budget
    */
   async validateAndLimit(candidates) {
     const validFiles = [];
+    const tokenManager = new TokenManager();
     let totalSize = 0;
 
+    // Sort candidates by estimated token cost (prefer smaller files first for better coverage)
+    const candidatesWithSize = [];
     for (const path of candidates) {
+      const fileInfo = this.context.structure.find(item => item.path === path);
+      if (fileInfo && fileInfo.type === 'file') {
+        candidatesWithSize.push({ path, size: fileInfo.size });
+      }
+    }
+    
+    // Sort: smaller files first (more files = better context coverage)
+    candidatesWithSize.sort((a, b) => a.size - b.size);
+
+    for (const { path, size } of candidatesWithSize) {
       if (validFiles.length >= CONFIG.maxFilesToFetch) break;
       if (totalSize >= CONFIG.maxTotalContext) break;
-
-      // Check structure cache first
-      const fileInfo = this.context.structure.find(item => item.path === path);
-
-      if (fileInfo && fileInfo.type === 'file') {
-        if (fileInfo.size <= CONFIG.maxFileSize) {
-          validFiles.push(path);
-          totalSize += fileInfo.size;
-        }
-      } else {
-        // File not in cache, verify via API
-        try {
-          const { data } = await this.github.rest.repos.getContent({
-            owner: this.owner,
-            repo: this.repo,
-            path,
-            ref: this.ref
-          });
-
-          if (data.type === 'file' && data.size <= CONFIG.maxFileSize) {
-            validFiles.push(path);
-            totalSize += data.size;
-          }
-        } catch {
-          // File doesn't exist, skip
-        }
+      
+      // Estimate tokens for this file
+      const estimatedTokens = Math.ceil(size * CONFIG.tokensPerChar);
+      
+      // Check if we can afford this file (or a compressed version)
+      const remainingBudget = tokenManager.remaining();
+      if (remainingBudget < 200) {
+        console.log(`[FileDiscovery] Token budget exhausted (${tokenManager.summary()})`);
+        break;
+      }
+      
+      if (size <= CONFIG.maxFileSize) {
+        validFiles.push(path);
+        totalSize += size;
+        tokenManager.consume(estimatedTokens);
       }
     }
 
+    console.log(`[FileDiscovery] Token usage: ${tokenManager.summary()}`);
     return validFiles;
   }
 }
 
 /**
  * Prompt builder - constructs AI prompts dynamically based on context
+ * TOKEN-OPTIMIZED: Uses concise, high-signal prompts
  */
 class PromptBuilder {
   constructor(projectContext) {
     this.context = projectContext;
+    this.tokenManager = new TokenManager();
   }
 
   buildFixPrompt(issue, triage, conventions, fileContents) {
-    const sections = [
-      this.buildSystemContext(),
-      this.buildProjectContext(),
-      this.buildIssueContext(issue, triage),
-      this.buildFileContents(fileContents),
-      this.buildCodingStandards(conventions),
-      this.buildRequirements(),
-      this.buildOutputFormat(issue.number),
-    ];
-
-    return sections.join('\n\n');
-  }
-
-  buildSystemContext() {
-    return `You are a SENIOR SOFTWARE ENGINEER with 10+ years of experience. You write production-quality code that is:
-- Maintainable and follows best practices
-- Thoroughly considers edge cases and error handling
-- Consistent with existing codebase patterns
-- Well-structured with proper separation of concerns
-- Robust and handles all scenarios mentioned in the issue`;
-  }
-
-  buildProjectContext() {
-    const { framework, language, projectType, dependencies, promptAdditions } = this.context;
-
-    const depsPreview = Object.keys(dependencies || {})
-      .filter(d => !d.startsWith('@types/'))
-      .slice(0, 12)
-      .join(', ');
-
-    return `## Project Context
-- **Framework**: ${framework}
-- **Language**: ${language}
-- **Project Type**: ${projectType}
-- **Key Dependencies**: ${depsPreview}
-${promptAdditions || ''}`;
-  }
-
-  buildIssueContext(issue, triage) {
-    return `## Issue Context - READ CAREFULLY
-- **Issue #${issue.number}**: ${issue.title}
-- **Full Description**: 
-${issue.body || 'No additional details provided'}
-
-- **Classification**: ${triage.classification}
-- **Risk Level**: ${triage.risk}
-- **Affected Files**: ${(triage.affectedFiles || []).join(', ') || 'Inferred from context'}`;
-  }
-
-  buildFileContents(fileContents) {
-    if (!fileContents || fileContents.length === 0) {
-      return '## Current File Contents\nERROR: No files provided - cannot proceed';
+    // Use ultra-compact prompt for GitHub Models
+    if (CONFIG.maxInputTokens < 10000) {
+      return this.buildCompactPrompt(issue, triage, fileContents);
     }
-
-    const formattedFiles = fileContents.map(fc => {
-      const ext = this.getLanguageForExtension(fc.path);
-      return `### File: ${fc.path}\n\`\`\`${ext}\n${fc.content}\n\`\`\``;
-    }).join('\n\n');
-
-    return `## Current File Contents (THESE ARE YOUR WORKING FILES)\n${formattedFiles}`;
+    return this.buildStandardPrompt(issue, triage, conventions, fileContents);
   }
 
-  buildCodingStandards(conventions) {
-    return `## Coding Standards (FOLLOW EXACTLY)
-- Indentation: ${conventions.indent_style === 'space' ? `${conventions.indent_size} spaces` : 'tabs'}
-- Line endings: ${conventions.end_of_line?.toUpperCase() || 'LF'}
-- Final newline: ${conventions.insert_final_newline !== false ? 'required' : 'optional'}
-- Code style: Match the existing style in each file exactly
-- Comments: Preserve existing comments, add new ones only for complex logic`;
+  /**
+   * Ultra-compact prompt for GitHub Models (8k limit)
+   * ~400 tokens overhead, maximizes file content space
+   */
+  buildCompactPrompt(issue, triage, fileContents) {
+    const fw = this.context.framework;
+    const lang = this.context.language;
+    
+    // Framework-specific one-liner
+    const fwHint = fw === 'Vue.js' 
+      ? 'Vue3 Composition API + <script setup> + TypeScript. NO Options API.'
+      : fw === 'React' 
+      ? 'React hooks + TypeScript. Functional components only.'
+      : `${fw} + ${lang}`;
+
+    // Process files with budget
+    const fileTokenBudget = CONFIG.fileTokenBudget - 400; // Reserve 400 for prompt
+    const filesSection = this.buildCompactFiles(fileContents, fileTokenBudget);
+    
+    // Compact issue description (max 300 chars)
+    const issueDesc = (issue.body || '').slice(0, 300).replace(/\n+/g, ' ');
+
+    return `Fix #${issue.number}: ${issue.title}
+${issueDesc}
+
+${fwHint}
+
+${filesSection}
+
+Return JSON:
+{"file_changes":[{"path":"...","content":"FULL file","change_summary":"..."}],"commit_message":"fix: ...\\n\\nFixes #${issue.number}"}
+
+Rules: Fix root cause. Handle nulls/errors. Match existing style. Complete code only.`;
   }
 
-  buildRequirements() {
-    return `## REQUIREMENTS - CRITICAL
-1. **Understand the Root Cause**: Don't just patch symptoms. Understand WHY the issue exists.
-
-2. **Consider Edge Cases**:
-   - Null/undefined values
-   - Empty arrays/objects
-   - Invalid inputs (wrong types, out of bounds)
-   - Async timing issues and race conditions
-
-3. **Error Handling**: Add proper error handling:
-   - Try-catch blocks for risky operations
-   - Validation before processing
-   - Graceful degradation with informative messages
-
-4. **Type Safety** (TypeScript):
-   - Use proper types (avoid 'any')
-   - Define interfaces for complex objects
-   - Use union types appropriately
-
-5. **Code Quality**:
-   - No magic numbers (use named constants)
-   - Descriptive variable/function names
-   - Single responsibility principle
-   - DRY (Don't Repeat Yourself)
-
-6. **Complete the Fix**:
-   - Address ALL aspects mentioned in the issue
-   - No TODOs or half-implemented features
-   - Production-ready code
-
-7. **Consistency**:
-   - Match existing code patterns
-   - Same naming conventions
-   - Same import/export style`;
+  /**
+   * Build compact file section
+   */
+  buildCompactFiles(fileContents, tokenBudget) {
+    if (!fileContents?.length) return 'NO FILES';
+    
+    const files = [];
+    let budget = tokenBudget;
+    const tm = new TokenManager();
+    
+    for (const fc of fileContents) {
+      if (budget < 150) break;
+      
+      const tokens = tm.estimate(fc.content);
+      if (tokens <= budget) {
+        files.push(`### ${fc.path}\n\`\`\`\n${fc.content}\n\`\`\``);
+        budget -= tokens;
+      } else {
+        // Compress large files
+        const compressed = ContentCompressor.compress(fc.content, fc.path, budget, tm);
+        if (compressed.tokens > 100) {
+          files.push(`### ${fc.path} [partial]\n\`\`\`\n${compressed.content}\n\`\`\``);
+          budget -= compressed.tokens;
+        }
+      }
+    }
+    
+    return files.join('\n\n') || 'NO FILES FIT BUDGET';
   }
 
-  buildOutputFormat(issueNumber) {
-    return `## Output Format (JSON only, no markdown wrapper)
+  /**
+   * Standard prompt for larger context windows (Anthropic/OpenAI)
+   */
+  buildStandardPrompt(issue, triage, conventions, fileContents) {
+    const fileTokenBudget = CONFIG.fileTokenBudget - 800;
+    const filesSection = this.buildFileContents(fileContents, fileTokenBudget);
+    
+    return `# Fix GitHub Issue #${issue.number}
+
+## Task
+${issue.title}
+
+${(issue.body || 'No description').slice(0, 1000)}
+
+## Context
+- **Stack**: ${this.context.framework} + ${this.context.language}
+- **Type**: ${triage.classification} | **Risk**: ${triage.risk}
+${this.getFrameworkRules()}
+
+${filesSection}
+
+## Output Format
+\`\`\`json
 {
   "file_changes": [
     {
-      "path": "path/to/file.ext",
-      "content": "COMPLETE FILE CONTENT - include ALL lines, not just changes",
-      "change_summary": "What changed, why, and edge cases considered"
+      "path": "path/to/file",
+      "content": "COMPLETE file content - all lines",
+      "change_summary": "What changed and why"
     }
   ],
-  "commit_message": "type(scope): description\\n\\nDetailed explanation\\n\\nFixes #${issueNumber}"
+  "commit_message": "type(scope): description\\n\\nFixes #${issue.number}"
 }
+\`\`\`
 
-**VALIDATIONS BEFORE RESPONDING**:
-✓ Does your fix address the ROOT CAUSE?
-✓ Have you considered edge cases?
-✓ Is error handling appropriate?
-✓ Does code match existing patterns?
-✓ Is the fix complete (no TODOs)?
-✓ Included ALL lines of each file?
+## Checklist
+- [ ] Root cause fixed (not just symptoms)
+- [ ] Edge cases handled (null, undefined, empty, invalid)
+- [ ] Error handling added where needed
+- [ ] Types are correct (no \`any\`)
+- [ ] Matches existing code style
+- [ ] Complete solution (no TODOs)`;
+  }
 
-Generate the COMPLETE, PRODUCTION-READY fix:`;
+  /**
+   * Get framework-specific rules (compact)
+   */
+  getFrameworkRules() {
+    const { framework } = this.context;
+    
+    const rules = {
+      'Vue.js': `**Vue Rules**: Composition API + \`<script setup>\`. Use \`ref()\`, \`computed()\`, \`defineProps<T>()\`, \`defineEmits<T>()\`. NO Options API.`,
+      'React': `**React Rules**: Functional components + hooks. Proper deps arrays. NO class components.`,
+      'Angular': `**Angular Rules**: Follow style guide. Use standalone components. Proper DI.`,
+      'Svelte': `**Svelte Rules**: Svelte 4/5 syntax. Reactive \`$:\` statements.`,
+      'Node.js': `**Node Rules**: async/await. Proper error handling. ES modules.`
+    };
+    
+    return rules[framework] || '';
+  }
+
+  buildFileContents(fileContents, tokenBudget) {
+    if (!fileContents || fileContents.length === 0) {
+      return '## Files\nNo files provided';
+    }
+
+    const processedFiles = [];
+    let remainingBudget = tokenBudget;
+    const tempTokenManager = new TokenManager();
+    
+    for (const fc of fileContents) {
+      if (remainingBudget < 200) break;
+      
+      const fullTokens = tempTokenManager.estimate(fc.content);
+      
+      if (fullTokens <= remainingBudget) {
+        processedFiles.push({ path: fc.path, content: fc.content, tokens: fullTokens });
+        remainingBudget -= fullTokens;
+      } else {
+        const allocatedBudget = Math.min(remainingBudget, Math.floor(tokenBudget / fileContents.length));
+        const compressed = ContentCompressor.compress(fc.content, fc.path, allocatedBudget, tempTokenManager);
+        
+        if (compressed.tokens > 100) {
+          processedFiles.push({ path: fc.path, content: compressed.content, tokens: compressed.tokens, partial: true });
+          remainingBudget -= compressed.tokens;
+        }
+      }
+    }
+
+    const formatted = processedFiles.map(pf => {
+      const ext = this.getLanguageForExtension(pf.path);
+      const note = pf.partial ? ' [partial]' : '';
+      return `### ${pf.path}${note}\n\`\`\`${ext}\n${pf.content}\n\`\`\``;
+    }).join('\n\n');
+
+    return `## Files (${processedFiles.length}/${fileContents.length})\n${formatted}`;
   }
 
   getLanguageForExtension(filePath) {
     const ext = extname(filePath).slice(1);
-    const langMap = {
-      vue: 'vue', ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
-      json: 'json', md: 'markdown', css: 'css', scss: 'scss', sass: 'sass',
-      less: 'less', html: 'html', svelte: 'svelte', py: 'python', rb: 'ruby',
-      go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', swift: 'swift',
-      yaml: 'yaml', yml: 'yaml', toml: 'toml', xml: 'xml', sql: 'sql',
-    };
-    return langMap[ext] || ext;
+    return { vue: 'vue', ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', css: 'css', scss: 'scss', json: 'json' }[ext] || ext;
   }
 }
 
@@ -1386,7 +1728,7 @@ class AutoFixAgent {
     const response = await this.ai.generateText({
       messages: [{ role: 'user', content: prompt }],
       temperature: CONFIG.temperature,
-      max_tokens: CONFIG.maxTokens
+      max_tokens: CONFIG.maxOutputTokens // Use provider-specific output limit
     });
 
     // Clean up response
