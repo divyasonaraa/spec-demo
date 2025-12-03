@@ -32,28 +32,28 @@ const DEFAULT_BRANCH = process.env.DEFAULT_BRANCH || 'main';
 async function main() {
   const startTime = Date.now();
   console.log(`[PR Generator] Starting for issue #${ISSUE_NUMBER}`);
-  
+
   try {
     // Set timeout
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new AutoFixError('TIMEOUT', 'PR generator timeout exceeded 30s')), TIMEOUT_MS);
     });
-    
+
     // Run PR generation with timeout
     const resultPromise = runPRGeneration();
     const result = await Promise.race([resultPromise, timeoutPromise]);
-    
+
     // Write output
     writeFileSync(OUTPUT_PATH, JSON.stringify(result, null, 2));
-    
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[PR Generator] ✓ Completed in ${duration}s`);
     process.exit(0);
-    
+
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[PR Generator] ✗ Failed after ${duration}s:`, error.message);
-    
+
     // Write error output
     const errorResult = {
       success: false,
@@ -76,33 +76,33 @@ async function runPRGeneration() {
   // Load all inputs
   const triageResult = JSON.parse(readFileSync(TRIAGE_RESULT_PATH, 'utf8'));
   const commitResult = JSON.parse(readFileSync(COMMIT_RESULT_PATH, 'utf8'));
-  
+
   if (!triageResult.success || !commitResult.success) {
     throw new AutoFixError('INVALID_INPUT', 'One or more input artifacts indicate failure');
   }
-  
+
   const triage = triageResult.data;
   const commits = commitResult.data;
-  
+
   // Get GitHub client
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-  
+
   // Fetch issue details
   const { data: issue } = await github.rest.issues.get({
     owner,
     repo,
     issue_number: parseInt(ISSUE_NUMBER, 10)
   });
-  
+
   console.log(`[PR Generator] Creating PR for: ${issue.title}`);
-  
+
   // Extract branch name from commit result
   const branchName = commits[0]?.branch_name;
   if (!branchName) {
     throw new AutoFixError('INVALID_INPUT', 'Branch name not found in commit result');
   }
-  
+
   // Check if PR already exists
   const existingPR = await findExistingPR(github, owner, repo, branchName);
   if (existingPR) {
@@ -117,22 +117,22 @@ async function runPRGeneration() {
       }
     };
   }
-  
+
   // Generate PR components
   const title = generatePRTitle(issue, triage.classification);
   const body = generatePRBody(issue, triage, commits);
   const labels = selectPRLabels(triage);
   const draft = shouldBeDraft(triage);
-  
+
   console.log(`[PR Generator] Title: ${title}`);
   console.log(`[PR Generator] Draft: ${draft}`);
   console.log(`[PR Generator] Labels: ${labels.join(', ')}`);
-  
+
   // Fetch CODEOWNERS for reviewer suggestions
   const codeowners = await fetchCodeowners(github, owner, repo);
   const filesChanged = commits[0]?.files_changed || [];
   const suggestedReviewers = determineSuggestedReviewers(filesChanged, codeowners);
-  
+
   // Create PR via GitHub API
   const prNumber = await createPullRequest(
     github,
@@ -144,27 +144,27 @@ async function runPRGeneration() {
     DEFAULT_BRANCH,
     draft
   );
-  
+
   console.log(`[PR Generator] Created PR #${prNumber}`);
-  
+
   // Apply labels
   await applyLabels(github, owner, repo, prNumber, labels);
-  
+
   // Request reviewers (skip if draft or no suggestions)
   if (!draft && suggestedReviewers.length > 0) {
     await requestReviewers(github, owner, repo, prNumber, suggestedReviewers);
   }
-  
+
   // Get PR URL
   const { data: pr } = await github.rest.pulls.get({
     owner,
     repo,
     pull_number: prNumber
   });
-  
+
   // Post success comment on issue
   await postSuccessComment(github, owner, repo, issue.number, prNumber, pr.html_url, draft);
-  
+
   const result = {
     number: prNumber,
     issue_number: issue.number,
@@ -179,7 +179,7 @@ async function runPRGeneration() {
     created_at: pr.created_at,
     url: pr.html_url
   };
-  
+
   return {
     success: true,
     data: result
@@ -197,18 +197,18 @@ function generatePRTitle(issue, classification) {
     'CHORE': 'Update',
     'OTHER': 'Update'
   };
-  
+
   const prefix = prefixMap[classification] || 'Update';
-  
+
   // Capitalize first letter
   const titleCase = issue.title.charAt(0).toUpperCase() + issue.title.slice(1);
-  
+
   // Limit to 100 chars total
   const maxTitleLength = 80; // Leave room for prefix
-  const truncatedTitle = titleCase.length > maxTitleLength 
+  const truncatedTitle = titleCase.length > maxTitleLength
     ? titleCase.substring(0, maxTitleLength) + '...'
     : titleCase;
-  
+
   return `${prefix} #${issue.number}: ${truncatedTitle}`;
 }
 
@@ -219,7 +219,7 @@ function generatePRBody(issue, triage, commits) {
   let body = `## Summary\n\n`;
   body += `Fixes #${issue.number}\n\n`;
   body += `${issue.title}\n\n`;
-  
+
   // What Changed
   body += `## What Changed\n\n`;
   const filesChanged = commits[0]?.files_changed || [];
@@ -231,14 +231,14 @@ function generatePRBody(issue, triage, commits) {
     body += `No file changes recorded.\n`;
   }
   body += `\n`;
-  
+
   // Why
   body += `## Why\n\n`;
   body += `**Root Cause**: ${triage.reasoning}\n\n`;
   if (issue.body) {
     body += `**Issue Description**: ${issue.body.substring(0, 500)}${issue.body.length > 500 ? '...' : ''}\n\n`;
   }
-  
+
   // Manual Verification
   body += `## Manual Verification\n\n`;
   body += `To verify this fix:\n\n`;
@@ -246,23 +246,23 @@ function generatePRBody(issue, triage, commits) {
   body += `1. Check out this PR branch: \`git checkout ${branchName}\`\n`;
   body += `2. Review the changes in: ${filesChanged.map(f => `\`${f}\``).join(', ')}\n`;
   body += `3. ${generateVerificationSteps(triage.classification, filesChanged)}\n\n`;
-  
+
   // Risk Assessment
   body += `## Risk Assessment\n\n`;
   body += `**Risk Level**: ${triage.risk}\n`;
   body += `**Affected Areas**: ${triage.affectedFiles?.length > 0 ? triage.affectedFiles.join(', ') : 'None specified'}\n`;
   body += `**Complexity**: Simple\n\n`;
-  
+
   // Security flags warning
   if (triage.securityFlags) {
     body += `⚠️ **Security Note**: This change was flagged for security review.\n\n`;
   }
-  
+
   // MEDIUM risk warning
   if (triage.risk === 'MEDIUM') {
     body += `⚠️ **MEDIUM RISK**: This PR requires maintainer review before merging.\n\n`;
   }
-  
+
   // Rollback Instructions
   if (commits.length > 0 && commits[0].sha) {
     body += `### Rollback Instructions\n\n`;
@@ -271,7 +271,7 @@ function generatePRBody(issue, triage, commits) {
     body += `git revert ${commits[0].sha}\n`;
     body += `\`\`\`\n\n`;
   }
-  
+
   // Validation Results (collapsible)
   body += `<details>\n<summary>Validation Results</summary>\n\n`;
   commits.forEach(commit => {
@@ -291,7 +291,7 @@ function generatePRBody(issue, triage, commits) {
     }
   });
   body += `</details>\n\n`;
-  
+
   // Commits (collapsible)
   body += `<details>\n<summary>Commits</summary>\n\n`;
   commits.forEach(commit => {
@@ -300,11 +300,11 @@ function generatePRBody(issue, triage, commits) {
     body += `- ${shortSha}: ${firstLine}\n`;
   });
   body += `\n</details>\n\n`;
-  
+
   // Footer
   body += `---\n\n`;
   body += `*This PR was automatically generated by the GitHub Auto-Fix system.*\n`;
-  
+
   return body;
 }
 
@@ -332,10 +332,10 @@ function generateVerificationSteps(classification, fileChanges) {
  */
 function selectPRLabels(triage) {
   const labels = ['auto-fix'];
-  
+
   // Classification label
   labels.push(triage.classification.toLowerCase());
-  
+
   // Risk labels
   switch (triage.risk) {
     case 'LOW':
@@ -348,12 +348,12 @@ function selectPRLabels(triage) {
       labels.push('high-risk', 'human-review-required');
       break;
   }
-  
+
   // Security label
   if (triage.securityFlags) {
     labels.push('security');
   }
-  
+
   return labels;
 }
 
@@ -363,10 +363,10 @@ function selectPRLabels(triage) {
 function shouldBeDraft(triage) {
   // MEDIUM risk requires draft + human approval
   if (triage.risk === 'MEDIUM') return true;
-  
+
   // HIGH risk should never reach PR (blocked by triage), but safety check
   if (triage.risk === 'HIGH') return true;
-  
+
   return false;
 }
 
@@ -379,7 +379,7 @@ async function fetchCodeowners(github, owner, repo) {
     '.github/CODEOWNERS',
     'docs/CODEOWNERS'
   ];
-  
+
   for (const path of codeownersPaths) {
     try {
       const { data } = await github.rest.repos.getContent({
@@ -387,7 +387,7 @@ async function fetchCodeowners(github, owner, repo) {
         repo,
         path
       });
-      
+
       const content = Buffer.from(data.content, 'base64').toString('utf8');
       return parseCodeowners(content);
     } catch (error) {
@@ -395,7 +395,7 @@ async function fetchCodeowners(github, owner, repo) {
       continue;
     }
   }
-  
+
   return {};
 }
 
@@ -404,24 +404,24 @@ async function fetchCodeowners(github, owner, repo) {
  */
 function parseCodeowners(content) {
   const codeowners = {};
-  
+
   const lines = content.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
-    
+
     // Skip comments and empty lines
     if (!trimmed || trimmed.startsWith('#')) continue;
-    
+
     // Format: pattern @owner1 @owner2
     const parts = trimmed.split(/\s+/);
     if (parts.length < 2) continue;
-    
+
     const pattern = parts[0];
     const owners = parts.slice(1).map(o => o.replace('@', ''));
-    
+
     codeowners[pattern] = owners;
   }
-  
+
   return codeowners;
 }
 
@@ -430,7 +430,7 @@ function parseCodeowners(content) {
  */
 function determineSuggestedReviewers(fileChanges, codeowners) {
   const reviewers = new Set();
-  
+
   // Match files against CODEOWNERS patterns
   for (const filePath of fileChanges) {
     for (const [pattern, owners] of Object.entries(codeowners)) {
@@ -439,7 +439,7 @@ function determineSuggestedReviewers(fileChanges, codeowners) {
       }
     }
   }
-  
+
   // Limit to 3 reviewers
   return Array.from(reviewers).slice(0, 3);
 }
@@ -453,7 +453,7 @@ function matchesPattern(path, pattern) {
     .replace(/\./g, '\\.')
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.');
-  
+
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(path);
 }
@@ -469,7 +469,7 @@ async function findExistingPR(github, owner, repo, branchName) {
       head: `${owner}:${branchName}`,
       state: 'open'
     });
-    
+
     return pulls.length > 0 ? pulls[0].number : null;
   } catch (error) {
     console.error('[PR Generator] Error checking for existing PR:', error.message);
@@ -492,7 +492,7 @@ async function createPullRequest(github, owner, repo, title, body, headBranch, b
       draft,
       maintainer_can_modify: true
     });
-    
+
     return pr.number;
   } catch (error) {
     throw new AutoFixError(
@@ -546,11 +546,11 @@ async function postSuccessComment(github, owner, repo, issueNumber, prNumber, pr
   const comment = `## ✅ Automated fix complete!\n\n` +
     `A pull request has been created: #${prNumber}\n\n` +
     `🔗 [View PR](${prUrl})\n\n` +
-    (isDraft 
+    (isDraft
       ? `⚠️ This PR is in **draft mode** and requires human review before merging.\n\n`
       : `The fix has been validated and is ready for review.\n\n`) +
     `If you approve the changes, a maintainer can merge the PR.`;
-  
+
   try {
     await github.rest.issues.createComment({
       owner,

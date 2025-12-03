@@ -216,7 +216,7 @@ async function generateFixDirectly(issue, triage, conventions, github, owner, re
 
   // Determine files to fetch based on issue and project structure
   let filesToFetch = triage.affectedFiles || [];
-  
+
   // If no files specified, try to infer from issue and project context
   if (filesToFetch.length === 0) {
     filesToFetch = await inferAffectedFiles(issue, projectContext, github, owner, repo);
@@ -468,30 +468,30 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     'input': ['src/components/base/BaseInput.vue', 'src/components/form/FieldWrapper.vue'],
     'field': ['src/components/form/FieldWrapper.vue', 'src/components/form/FormRenderer.vue'],
     'submit': ['src/composables/useFormSubmission.ts', 'src/components/form/FormRenderer.vue'],
-    
+
     // Component-related
     'button': ['src/components/base/BaseButton.vue'],
     'select': ['src/components/base/BaseSelect.vue'],
     'checkbox': ['src/components/base/BaseCheckbox.vue'],
     'radio': ['src/components/base/BaseRadio.vue'],
     'textarea': ['src/components/base/BaseTextarea.vue'],
-    
+
     // Step/wizard-related
     'step': ['src/components/form/FormStep.vue', 'src/components/form/StepIndicator.vue', 'src/composables/useMultiStep.ts'],
     'multi-step': ['src/composables/useMultiStep.ts', 'src/components/form/FormStep.vue'],
-    
+
     // Conditional-related
     'conditional': ['src/composables/useConditionalFields.ts'],
     'dependency': ['src/composables/useFieldDependency.ts'],
-    
+
     // Demo/view-related
     'demo': ['src/views/DemoView.vue'],
     'config': ['src/components/demo/ConfigEditor.vue', 'src/components/demo/ConfigValidator.vue'],
-    
+
     // Payload-related
     'payload': ['src/components/payload/PayloadPreview.vue', 'src/components/payload/JsonDisplay.vue'],
     'json': ['src/components/payload/JsonDisplay.vue'],
-    
+
     // Toast/notification
     'toast': ['src/components/common/ToastNotification.vue'],
     'notification': ['src/components/common/ToastNotification.vue'],
@@ -503,8 +503,8 @@ async function inferAffectedFiles(issue, projectContext, github, owner, repo) {
     'validation': ['src/hooks/useValidation.ts'],
   };
 
-  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings : 
-                        projectContext.framework === 'React' ? reactFileMappings : {};
+  const fileMappings = projectContext.framework === 'Vue.js' ? vueFileMappings :
+    projectContext.framework === 'React' ? reactFileMappings : {};
 
   // Check which keywords match
   for (const [keyword, files] of Object.entries(fileMappings)) {
@@ -585,9 +585,9 @@ async function applyFileChange(fileChange) {
  */
 function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
   console.log('[Auto-Fix] Running security pre-check...');
-  
+
   const violations = [];
-  
+
   // Check each file against security patterns
   for (const filePath of affectedFiles) {
     const fileMatches = checkSecurityFilePath(filePath);
@@ -598,7 +598,7 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
         patterns: fileMatches.map(m => m.pattern.source),
       });
     }
-    
+
     // Additional critical patterns
     const CRITICAL_PATTERNS = [
       { pattern: /^\.env/, reason: 'Environment configuration file' },
@@ -613,17 +613,17 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
       { pattern: /docker-compose\.prod/, reason: 'Production infrastructure' },
       { pattern: /kubernetes\//, reason: 'Kubernetes configuration' },
     ];
-    
+
     for (const { pattern, reason } of CRITICAL_PATTERNS) {
       if (pattern.test(filePath)) {
         violations.push({ path: filePath, reason, pattern: pattern.source });
       }
     }
   }
-  
+
   // Check for risky change types
   const riskyChanges = checkRiskyChangeTypes(`${issueTitle} ${issueBody}`, affectedFiles);
-  
+
   for (const riskyChange of riskyChanges) {
     const BLOCKED_CHANGE_TYPES = ['DATABASE_MIGRATION', 'CI_CD_PIPELINE', 'INFRASTRUCTURE_CONFIG'];
     if (BLOCKED_CHANGE_TYPES.includes(riskyChange.type)) {
@@ -634,19 +634,19 @@ function securityPreCheck(affectedFiles, issueTitle = '', issueBody = '') {
       });
     }
   }
-  
+
   // Block if violations found
   if (violations.length > 0) {
     console.error('[Auto-Fix] ⛔ Security violations detected:');
     violations.forEach(v => console.error(`  - ${v.path}: ${v.reason}`));
-    
+
     throw new AutoFixError(
       'SECURITY_VIOLATION',
       `Auto-fix blocked: ${violations.length} security violation(s) detected`,
       { violations }
     );
   }
-  
+
   console.log('[Auto-Fix] ✓ Security pre-check passed');
 }
 
@@ -866,10 +866,10 @@ async function rollback() {
 async function postErrorComment(error) {
   const github = getGitHubClient();
   const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-  
+
   let errorComment = `## ❌ Auto-Fix Failed\n\n`;
   errorComment += `**Error**: ${error.message}\n\n`;
-  
+
   if (error.code === 'VALIDATION_FAILED') {
     errorComment += `### Validation Failure\n\n`;
     errorComment += `The automated fix was generated but failed validation checks:\n\n`;
@@ -895,14 +895,14 @@ async function postErrorComment(error) {
     errorComment += `The automation system encountered an error and has rolled back any changes.\n\n`;
     errorComment += `A maintainer will need to investigate this issue manually.\n`;
   }
-  
+
   await github.rest.issues.createComment({
     owner,
     repo,
     issue_number: parseInt(ISSUE_NUMBER, 10),
     body: errorComment,
   });
-  
+
   // Add automation-failed label
   await github.rest.issues.addLabels({
     owner,
@@ -910,7 +910,7 @@ async function postErrorComment(error) {
     issue_number: parseInt(ISSUE_NUMBER, 10),
     labels: ['automation-failed'],
   });
-  
+
   console.log('[Auto-Fix] Posted error comment and added automation-failed label');
 }
 

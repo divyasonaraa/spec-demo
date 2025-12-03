@@ -51,7 +51,7 @@ async function main() {
     } catch (error) {
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.error(`[Planner] ✗ Failed after ${duration}s:`, error.message);
-        
+
         // Add helpful error messages
         if (error.message.includes('AI provider') || error.message.includes('API')) {
             console.error('[Planner] ❌ AI API Error - This usually means:');
@@ -68,7 +68,7 @@ async function main() {
                 code: error.code || 'PLANNING_FAILED',
                 message: error.message,
                 details: error.details || {},
-                helpfulHint: error.message.includes('AI provider') 
+                helpfulHint: error.message.includes('AI provider')
                     ? 'Add ANTHROPIC_API_KEY secret to your repository. See FIX_AUTOMATION.md'
                     : null
             }

@@ -15,14 +15,14 @@ import { AutoFixError, ErrorCodes } from './error-handler.js';
  */
 export function createGitHubClient() {
   const token = process.env.GITHUB_TOKEN;
-  
+
   if (!token) {
     throw new AutoFixError(
       'GITHUB_TOKEN environment variable is required',
       ErrorCodes.CONFIG_ERROR
     );
   }
-  
+
   return new Octokit({
     auth: token,
     userAgent: 'github-auto-fix-agent/1.0.0',
@@ -88,7 +88,7 @@ export async function postComment(octokit, owner, repo, issueNumber, body) {
  */
 export async function addLabels(octokit, owner, repo, issueNumber, labels) {
   if (!labels || labels.length === 0) return;
-  
+
   return retryWithBackoff(async () => {
     await octokit.issues.addLabels({
       owner,
@@ -158,13 +158,13 @@ export async function getDefaultBranchSha(octokit, owner, repo) {
   return retryWithBackoff(async () => {
     const { data } = await octokit.repos.get({ owner, repo });
     const defaultBranch = data.default_branch;
-    
+
     const { data: refData } = await octokit.git.getRef({
       owner,
       repo,
       ref: `heads/${defaultBranch}`,
     });
-    
+
     return refData.object.sha;
   });
 }
@@ -207,7 +207,7 @@ export async function createPullRequest(octokit, owner, repo, title, head, base,
  */
 export async function requestReviewers(octokit, owner, repo, pullNumber, reviewers) {
   if (!reviewers || reviewers.length === 0) return;
-  
+
   return retryWithBackoff(async () => {
     await octokit.pulls.requestReviewers({
       owner,
@@ -231,23 +231,23 @@ export async function getFileContent(octokit, owner, repo, path, ref = null) {
   return retryWithBackoff(async () => {
     const params = { owner, repo, path };
     if (ref) params.ref = ref;
-    
+
     const { data } = await octokit.repos.getContent(params);
-    
+
     if (Array.isArray(data)) {
       throw new AutoFixError(
         `Path is a directory, not a file: ${path}`,
         ErrorCodes.INVALID_INPUT
       );
     }
-    
+
     if (data.type !== 'file') {
       throw new AutoFixError(
         `Path is not a file: ${path}`,
         ErrorCodes.INVALID_INPUT
       );
     }
-    
+
     // Decode base64 content
     return Buffer.from(data.content, 'base64').toString('utf-8');
   });
@@ -293,7 +293,7 @@ export async function findPullRequestByBranch(octokit, owner, repo, head) {
       head: `${owner}:${head}`,
       state: 'open',
     });
-    
+
     return data.length > 0 ? data[0] : null;
   });
 }
@@ -311,7 +311,7 @@ export async function getCodeOwners(octokit, owner, repo) {
     'CODEOWNERS',
     'docs/CODEOWNERS',
   ];
-  
+
   for (const path of possiblePaths) {
     try {
       return await getFileContent(octokit, owner, repo, path);
@@ -320,7 +320,7 @@ export async function getCodeOwners(octokit, owner, repo) {
       continue;
     }
   }
-  
+
   return null;
 }
 

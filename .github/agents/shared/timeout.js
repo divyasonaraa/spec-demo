@@ -27,7 +27,7 @@ export const DEFAULT_TIMEOUTS = {
  */
 export async function withTimeout(fn, timeoutMs, operationName = 'Operation') {
   let timeoutId;
-  
+
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
       reject(new AutoFixError(
@@ -38,7 +38,7 @@ export async function withTimeout(fn, timeoutMs, operationName = 'Operation') {
       ));
     }, timeoutMs);
   });
-  
+
   try {
     const result = await Promise.race([fn(), timeoutPromise]);
     clearTimeout(timeoutId);
@@ -61,9 +61,9 @@ export async function withAITimeout(fn, options = {}) {
     operation = 'AI API call',
     logCost = true,
   } = options;
-  
+
   const startTime = Date.now();
-  
+
   try {
     console.error(JSON.stringify({
       level: 'INFO',
@@ -71,10 +71,10 @@ export async function withAITimeout(fn, options = {}) {
       timeout,
       timestamp: new Date().toISOString(),
     }));
-    
+
     const result = await withTimeout(fn, timeout, operation);
     const duration = Date.now() - startTime;
-    
+
     // Log completion with cost estimation
     console.error(JSON.stringify({
       level: 'INFO',
@@ -83,11 +83,11 @@ export async function withAITimeout(fn, options = {}) {
       estimatedCost: logCost ? estimateAICost(result, duration) : null,
       timestamp: new Date().toISOString(),
     }));
-    
+
     return result;
   } catch (error) {
     const duration = Date.now() - startTime;
-    
+
     console.error(JSON.stringify({
       level: 'ERROR',
       message: `${operation} failed`,
@@ -96,7 +96,7 @@ export async function withAITimeout(fn, options = {}) {
       timeout,
       timestamp: new Date().toISOString(),
     }));
-    
+
     throw error;
   }
 }
@@ -111,14 +111,14 @@ function estimateAICost(result, duration) {
   // Claude Sonnet pricing (approximate)
   const INPUT_COST_PER_1K = 0.003;  // $3 per million tokens
   const OUTPUT_COST_PER_1K = 0.015; // $15 per million tokens
-  
+
   const inputTokens = result?.usage?.input_tokens || 0;
   const outputTokens = result?.usage?.output_tokens || 0;
-  
+
   const inputCost = (inputTokens / 1000) * INPUT_COST_PER_1K;
   const outputCost = (outputTokens / 1000) * OUTPUT_COST_PER_1K;
   const totalCost = inputCost + outputCost;
-  
+
   return {
     inputTokens,
     outputTokens,
@@ -156,22 +156,22 @@ export async function withValidationTimeout(fn, operation = 'Validation') {
  */
 export async function trackAgentExecution(fn, agentName) {
   const startTime = Date.now();
-  
+
   console.error(JSON.stringify({
     level: 'INFO',
     message: `Agent started: ${agentName}`,
     timestamp: new Date().toISOString(),
   }));
-  
+
   try {
     const result = await withTimeout(
       fn,
       DEFAULT_TIMEOUTS.TOTAL_AGENT,
       `${agentName} execution`
     );
-    
+
     const duration = Date.now() - startTime;
-    
+
     console.error(JSON.stringify({
       level: 'INFO',
       message: `Agent completed: ${agentName}`,
@@ -179,11 +179,11 @@ export async function trackAgentExecution(fn, agentName) {
       durationSeconds: (duration / 1000).toFixed(2),
       timestamp: new Date().toISOString(),
     }));
-    
+
     return result;
   } catch (error) {
     const duration = Date.now() - startTime;
-    
+
     console.error(JSON.stringify({
       level: 'ERROR',
       message: `Agent failed: ${agentName}`,
@@ -192,7 +192,7 @@ export async function trackAgentExecution(fn, agentName) {
       duration,
       timestamp: new Date().toISOString(),
     }));
-    
+
     throw error;
   }
 }
@@ -204,7 +204,7 @@ export async function trackAgentExecution(fn, agentName) {
  */
 export async function withTimeouts(operations) {
   return Promise.all(
-    operations.map(({ fn, timeout, name }) => 
+    operations.map(({ fn, timeout, name }) =>
       withTimeout(fn, timeout, name)
     )
   );
