@@ -19,7 +19,7 @@
                         :aria-describedby="getAriaDescribedby(field.name, field.helpText)" v-bind="getFieldProps(field)"
                         @update:model-value="updateFieldValue(field.name, $event)"
                         @blur="handleFieldBlur(field.name)" />
-                    
+
                     <!-- Show data source error if field has data source and error occurred -->
                     <p v-if="field.dataSource && dataSource.errors.value[field.name]" 
                        class="mt-2 text-sm text-error-600 flex items-center gap-2">
