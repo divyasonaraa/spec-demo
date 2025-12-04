@@ -149,3 +149,5 @@ Affected file: src/components/form/StepIndicator.vue
    - Merge the PRs
    - Verify bugs are fixed in the UI
 
+   checking for issues
+
